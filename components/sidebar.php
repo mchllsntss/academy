@@ -75,6 +75,7 @@
         <i class="fas fa-bars text-lg"></i>
     </button>
 
+    
     <!-- Sidebar -->
     <div id="sidebar" class="fixed inset-y-0 left-0 w-64 text-white rounded-r-2xl shadow-xl z-30 transition-all duration-300">
        <!-- Header with controls -->

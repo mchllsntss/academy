@@ -47,6 +47,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: ../pages/login.php?error=Invalid username or password");
         exit;
     }
+
+    
     
     mysqli_stmt_close($stmt);
     // Close connection

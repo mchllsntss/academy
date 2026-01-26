@@ -256,6 +256,7 @@
                     </div>
                 </div>
                 
+                
                 <!-- Modal Body -->
                 <div class="bg-white px-6 py-6">
                     <form id="addStudentForm">

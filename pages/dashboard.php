@@ -126,6 +126,7 @@
                                 </div>
                             </div>
                             
+                            
                             <div class="flex items-center p-4 bg-green-50 rounded-lg">
                                 <div class="bg-green-600 p-3 rounded-lg mr-4">
                                     <i class="fas fa-user-plus text-white"></i>
