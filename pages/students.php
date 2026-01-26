@@ -11,10 +11,10 @@
         }
         
         :root {
-            --primary-green: #10b981;
-            --primary-green-dark: #059669;
-            --primary-green-light: #a7f3d0;
-            --bg-green-light: #f0fdf4;
+            --primary-green: #2e7d32;
+            --primary-green-dark: #2e7d32;
+            --primary-green-light: #2e7d32;
+            --bg-green-light: #2e7d32;
         }
         
         .btn-primary {
@@ -64,7 +64,7 @@
         }
         
         .table-row:hover {
-            background-color: #f0fdf4;
+            background-color: #a1f27c;
         }
         
         @media print {
@@ -118,11 +118,11 @@
                         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <i class="fas fa-search text-gray-400"></i>
                         </div>
-                        <input type="text" id="searchStudents" class="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" placeholder="Search students by name, ID, or username...">
+                        <input type="text" id="searchStudents" class="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2e7d32] focus:border-transparent" placeholder="Search students by name, ID, or username...">
                     </div>
                     
                     <div class="flex space-x-4">
-                        <select class="border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent">
+                        <select class="border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#2e7d32] focus:border-transparent">
                             <option value="">All Status</option>
                             <option value="active">Active</option>
                             <option value="inactive">Inactive</option>
@@ -156,30 +156,30 @@
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-green-50">
+                            <thead style="background-color: #2e7d32; color: white;">
                                 <tr>
-                                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                    <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
                                         Student ID
                                     </th>
-                                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                    <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
                                         Name
                                     </th>
-                                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                    <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
                                         Username
                                     </th>
-                                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                    <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
                                         Books Borrowed
                                     </th>
-                                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                    <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
                                         Status
                                     </th>
-                                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                    <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
                                         Join Date
                                     </th>
-                                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                    <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider">
                                         Date Created
                                     </th>
-                                    <th class="px-6 py-4 text-left text-xs font-medium text-gray-700 uppercase tracking-wider no-print">
+                                    <th class="px-6 py-4 text-left text-xs font-medium text-white uppercase tracking-wider no-print">
                                         Actions
                                     </th>
                                 </tr>
@@ -191,9 +191,9 @@
                     </div>
                     
                     <!-- Pagination -->
-                    <div class="px-6 py-4 bg-green-50 border-t border-gray-200 no-print">
+                    <div class="px-6 py-4 border-t border-gray-200 no-print" style="background-color: #2e7d32; color: white;">
                         <div class="flex items-center justify-between">
-                            <div class="text-sm text-gray-700">
+                            <div class="text-sm text-white">
                                 Showing <span class="font-medium">1</span> to <span class="font-medium">10</span> of <span class="font-medium">342</span> students
                             </div>
                             <div class="flex space-x-2">
