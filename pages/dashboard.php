@@ -168,17 +168,9 @@
                 </div>
             </div>
         </div>
-        
-        <!-- Simple Footer -->
-        <footer class="bg-white border-t py-4 px-6 mt-8">
-            <div class="max-w-7xl mx-auto">
-                <div class="flex flex-col md:flex-row justify-between items-center">
-                    <p class="text-gray-600 text-sm">© 2023 Library Management System. All rights reserved.</p>
-                    <p class="text-gray-500 text-sm mt-2 md:mt-0">Dashboard Version 2.1 • Last updated: Today, 11:45 AM</p>
-                </div>
-            </div>
-        </footer>
     </div>
+
+    <?php include '../components/footer.php'; ?>
 
     <script>
         // Initialize chart
@@ -201,7 +193,7 @@
                         {
                             label: 'Books Returned',
                             data: [8, 12, 10, 18, 15, 20, 16],
-                            borderColor: '#10b981',
+                            borderColor: '#2e7d32',
                             backgroundColor: 'rgba(16, 185, 129, 0.1)',
                             borderWidth: 2,
                             fill: true,

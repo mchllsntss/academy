@@ -163,7 +163,7 @@
                             Username
                         </span>
                     </label>
-                    <input type="text" class="w-full px-4 py-2.5 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 transition duration-300" id="username" name="username" required placeholder="Enter username">
+                    <input type="text" class="w-full px-4 py-2.5 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#2e7d32] transition duration-300" id="username" name="username" required placeholder="Enter username">
                 </div>
                 
                 <div class="mb-6">
@@ -176,7 +176,7 @@
                         </span>
                     </label>
                     <div class="relative">
-                        <input type="password" class="w-full px-4 py-2.5 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 pr-12 transition duration-300" id="password" name="password" required placeholder="Enter password">
+                        <input type="password" class="w-full px-4 py-2.5 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#2e7d32] pr-12 transition duration-300" id="password" name="password" required placeholder="Enter password">
                         <img src="../images/eye2.png" id="passwordToggle" class="absolute right-3 top-1/2 transform -translate-y-1/2 cursor-pointer w-6 h-6 hover:opacity-80 transition duration-200" onclick="togglePassword()">
                     </div>
                     
@@ -190,7 +190,7 @@
             
             <div class="mt-6 text-center space-y-3">
                 <p>
-                    <a href="forgot_password.php" class="forgot-password hover:text-green-800 font-medium transition duration-300 inline-flex items-center text-sm">
+                    <a href="forgot_password.php" class="forgot-password font-medium transition duration-300 inline-flex items-center text-sm" style="color: #2e7d32;">
                         <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                             <path fill-rule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clip-rule="evenodd"/>
                         </svg>
@@ -215,5 +215,8 @@
             }
         }
     </script>
+
+    <?php include '../components/footer.php'; ?>
+
 </body>
 </html>
