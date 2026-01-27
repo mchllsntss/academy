@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jan 26, 2026 at 09:48 AM
+-- Generation Time: Jan 27, 2026 at 08:46 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -16,7 +16,6 @@ SET time_zone = "+00:00";
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
 /*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
 /*!40101 SET NAMES utf8mb4 */;
-
 
 --
 -- Database: `academy`
@@ -38,7 +37,8 @@ CREATE TABLE `profile` (
 --
 
 INSERT INTO `profile` (`id`, `name`) VALUES
-(1, 'Administrator');
+(1, 'Administrator'),
+(2, 'student');
 
 -- --------------------------------------------------------
 
@@ -63,7 +63,8 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `username`, `email`, `password_hash`, `first_name`, `last_name`, `phone`, `profile_image`, `profile_id`) VALUES
-(1, 'admin', 'admin@gmail.com', '$2y$10$5xKmcOOTqEztpzDnFP7BC.c6O1tZ9P2n9yngnhiot2juHL56c0V9e', NULL, NULL, NULL, NULL, 1);
+(1, 'admin', 'admin@gmail.com', '$2y$10$5xKmcOOTqEztpzDnFP7BC.c6O1tZ9P2n9yngnhiot2juHL56c0V9e', NULL, NULL, NULL, NULL, 1),
+(2, 'student ', 'student@gmail.com', '$2a$12$Yuyt.sWbyege5Flw0STI7uzDGGK456bojHgrLkOehrDxdKSKDAyQ2', NULL, NULL, NULL, NULL, 2);
 
 --
 -- Indexes for dumped tables
@@ -93,13 +94,13 @@ ALTER TABLE `users`
 -- AUTO_INCREMENT for table `profile`
 --
 ALTER TABLE `profile`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- Constraints for dumped tables
