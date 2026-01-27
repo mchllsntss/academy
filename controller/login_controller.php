@@ -18,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     // Prepare statement to prevent SQL injection
-    $stmt = mysqli_prepare($conn, "SELECT id, password_hash FROM users WHERE username = ?");
+    $stmt = mysqli_prepare($conn, "SELECT id, password_hash, profile_id FROM users WHERE username = ?");
     mysqli_stmt_bind_param($stmt, "s", $user);
     mysqli_stmt_execute($stmt);
     $result = mysqli_stmt_get_result($stmt);
@@ -32,10 +32,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Set session variables
             $_SESSION['user_id'] = $row['id'];
             $_SESSION['username'] = $user;
+            $_SESSION['profile_id'] = $row['profile_id'];
             $_SESSION['logged_in'] = true;
             
-            // Redirect to dashboard
-            header("Location: ../pages/dashboard.php");
+            // Redirect based on user level
+            if ($row['profile_id'] == 1) {
+                // Admin
+                header("Location: ../pages/dashboard.php");
+            } else {
+                // Student
+                header("Location: ../pages/student_books.php");
+            }
             exit;
         } else {
             // Redirect back with error
