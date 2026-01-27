@@ -1,3 +1,53 @@
+<?php
+// requested_books.php - Librarian / Admin view of pending requests
+require_once '../connection/dbconnection.php';
+
+// Handle Approve / Reject actions
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'], $_POST['action'])) {
+    $request_id = (int)$_POST['request_id'];
+    $action = $_POST['action'];
+
+    $new_status = ($action === 'approve') ? 'approved' : 'rejected';
+
+    $stmt = $conn->prepare("UPDATE book_requests SET status = ? WHERE id = ?");
+    $stmt->bind_param("si", $new_status, $request_id);
+    
+    if ($stmt->execute()) {
+        // Optional: if approved and it's borrow → decrease book quantity
+        if ($new_status === 'approved') {
+            $req = $conn->query("SELECT book_id, request_type FROM book_requests WHERE id = $request_id")->fetch_assoc();
+            if ($req && $req['request_type'] === 'borrow') {
+                $conn->query("UPDATE books SET quantity = quantity - 1 WHERE id = {$req['book_id']} AND quantity > 0");
+            }
+        }
+        $message = "<strong>Success!</strong> Request marked as " . ucfirst($new_status) . ".";
+    } else {
+        $message = "<strong>Error:</strong> " . $stmt->error;
+    }
+    $stmt->close();
+}
+
+// Fetch all requests (no join to students)
+$requests = [];
+$result = $conn->query("
+    SELECT 
+        r.id,
+        r.student_id,
+        r.book_id,
+        r.request_type,
+        r.request_date,
+        r.status,
+        b.title AS book_title,
+        b.call_number
+    FROM book_requests r
+    JOIN books b ON r.book_id = b.id
+    ORDER BY r.request_date DESC
+");
+if ($result) {
+    $requests = $result->fetch_all(MYSQLI_ASSOC);
+}
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -12,7 +62,6 @@
             box-sizing: border-box;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
-
         body {
             background-color: #f5f7fa;
             color: #333;
@@ -20,25 +69,21 @@
             display: flex;
             min-height: 100vh;
         }
-
         .main-container {
             display: flex;
             flex: 1;
         }
-
         .content-wrapper {
             flex: 1;
-            margin-left: 250px; /* Adjust based on sidebar width */
+            margin-left: 250px;
             padding: 20px;
             transition: margin-left 0.3s ease;
         }
-
         .container {
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
         }
-
         header {
             background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
             color: white;
@@ -47,23 +92,19 @@
             margin-bottom: 30px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
-
         .header-content {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 0 30px;
         }
-
         h1 {
             font-size: 28px;
         }
-
         .stats {
             display: flex;
             gap: 20px;
         }
-
         .stat-box {
             background-color: rgba(46, 125, 50, 0.1);
             padding: 10px 20px;
@@ -72,18 +113,15 @@
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
-
         .stat-value {
             font-size: 22px;
             font-weight: bold;
             color: #4caf50;
         }
-
         .stat-label {
             font-size: 14px;
             color: #e8f5e9;
         }
-
         .controls {
             display: flex;
             justify-content: space-between;
@@ -96,13 +134,11 @@
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
         }
-
         .search-box {
             position: relative;
             flex-grow: 1;
             max-width: 400px;
         }
-
         .search-box input {
             width: 100%;
             padding: 12px 20px 12px 45px;
@@ -111,13 +147,11 @@
             font-size: 16px;
             transition: all 0.3s;
         }
-
         .search-box input:focus {
             border-color: #2e7d32;
             box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.2);
             outline: none;
         }
-
         .search-box i {
             position: absolute;
             left: 15px;
@@ -125,13 +159,11 @@
             transform: translateY(-50%);
             color: #7f8c8d;
         }
-
         .filters {
             display: flex;
             gap: 15px;
             align-items: center;
         }
-
         select {
             padding: 10px 15px;
             border-radius: 6px;
@@ -141,13 +173,11 @@
             cursor: pointer;
             transition: all 0.3s;
         }
-
         select:focus {
             border-color: #2e7d32;
             outline: none;
             box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.1);
         }
-
         .table-container {
             background-color: white;
             border-radius: 10px;
@@ -156,49 +186,40 @@
             margin-bottom: 30px;
             overflow-x: auto;
         }
-
         table {
             width: 100%;
             border-collapse: collapse;
         }
-
         thead {
             background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
             color: white;
         }
-
         th {
             padding: 18px 15px;
             text-align: left;
             font-weight: 600;
             font-size: 16px;
         }
-
         th i {
             margin-left: 8px;
             opacity: 0.7;
         }
-
         tbody tr {
             border-bottom: 1px solid #f1f1f1;
             transition: background-color 0.2s;
         }
-
         tbody tr:hover {
             background-color: #f9f9f9;
         }
-
         td {
             padding: 18px 15px;
             color: #444;
         }
-
         .requestor-info {
             display: flex;
             align-items: center;
             gap: 12px;
         }
-
         .avatar {
             width: 36px;
             height: 36px;
@@ -210,17 +231,14 @@
             justify-content: center;
             font-weight: bold;
         }
-
         .book-title {
             font-weight: 500;
             color: #2c3e50;
         }
-
         .action-buttons {
             display: flex;
             gap: 10px;
         }
-
         .btn {
             padding: 8px 18px;
             border-radius: 6px;
@@ -233,36 +251,30 @@
             align-items: center;
             gap: 8px;
         }
-
-        .btn-stored {
+        .btn-approve {
             background: #1e9224;
             color: white;
         }
-
-        .btn-stored:hover {
+        .btn-approve:hover {
             background: #0e4b10;
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
         }
-
-        .btn-not-stored {
-           background: #ff0000;
+        .btn-reject {
+            background: #ff0000;
             color: white;
         }
-
-        .btn-not-stored:hover {
+        .btn-reject:hover {
             background: #b00707;
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(231, 111, 81, 0.3);
         }
-
         .btn:disabled {
             background: #bdc3c7;
             cursor: not-allowed;
             transform: none !important;
             box-shadow: none !important;
         }
-
         .status-badge {
             padding: 5px 12px;
             border-radius: 20px;
@@ -270,83 +282,69 @@
             font-weight: 600;
             text-transform: uppercase;
         }
-
-        .status-stored {
-            background-color: #e8f5e9;
-            color: #2e7d32;
+        .status-pending {
+            background-color: #fff3cd;
+            color: #856404;
         }
-
-        .status-not-stored {
-            background-color: #fadbd8;
-            color: #c0392b;
+        .status-approved {
+            background-color: #d4edda;
+            color: #155724;
         }
-
+        .status-rejected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .message {
+            padding: 12px 20px;
+            margin: 15px 0;
+            border-radius: 6px;
+            border-left: 5px solid;
+        }
+        .message.success { background:#e8f5e9; border-color:#2e7d32; }
+        .message.error   { background:#ffebee; border-color:#c62828; }
         .footer {
             text-align: center;
             margin-top: 30px;
             color: #7f8c8d;
             font-size: 14px;
         }
-
-        /* Sidebar adjustment for smaller screens */
         @media (max-width: 1024px) {
-            .content-wrapper {
-                margin-left: 0;
-                padding: 15px;
-            }
+            .content-wrapper { margin-left: 0; padding: 15px; }
         }
-
         @media (max-width: 768px) {
-            .header-content {
-                flex-direction: column;
-                gap: 20px;
-                text-align: center;
-            }
-            
-            .controls {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            
-            .search-box {
-                max-width: 100%;
-            }
-            
-            .filters {
-                flex-wrap: wrap;
-            }
-            
-            th, td {
-                padding: 12px 10px;
-            }
-            
-            .btn {
-                padding: 8px 12px;
-                font-size: 13px;
-            }
-            
-            .content-wrapper {
-                padding: 10px;
-            }
+            .header-content { flex-direction: column; gap: 20px; text-align: center; }
+            .controls { flex-direction: column; align-items: stretch; }
+            .search-box { max-width: 100%; }
+            .filters { flex-wrap: wrap; }
+            th, td { padding: 12px 10px; }
+            .btn { padding: 8px 12px; font-size: 13px; }
+            .content-wrapper { padding: 10px; }
         }
     </style>
 </head>
 <body>
     <?php include '../components/header.php'; ?>
     <?php include '../components/sidebar.php'; ?>
-    
+
     <div class="content-wrapper">
         <div class="container">
+            <?php if (isset($message)): ?>
+                <div class="message <?= strpos($message, 'Success') !== false ? 'success' : 'error' ?>">
+                    <?= $message ?>
+                </div>
+            <?php endif; ?>
+
             <div class="controls">
                 <div class="search-box">
                     <i class="fas fa-search"></i>
-                    <input type="text" id="search-input" placeholder="Search by book title, requestor, or date...">
+                    <input type="text" id="search-input" placeholder="Search by book title, student ID, or date...">
                 </div>
                 <div class="filters">
                     <select id="status-filter">
                         <option value="all">All Status</option>
-                        <option value="stored">Stored</option>
-                        <option value="not-stored">Not Stored</option>
+                        <option value="pending">Pending</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
                     </select>
                     <select id="date-filter">
                         <option value="recent">Most Recent</option>
@@ -360,224 +358,106 @@
                     <thead>
                         <tr>
                             <th>Date <i class="fas fa-sort"></i></th>
-                            <th>Requestor <i class="fas fa-sort"></i></th>
+                            <th>Student ID <i class="fas fa-sort"></i></th>
                             <th>Book Title <i class="fas fa-sort"></i></th>
+                            <th>Type</th>
                             <th>Status</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="table-body">
-                        <!-- Table rows will be generated by JavaScript -->
+                        <?php if (empty($requests)): ?>
+                            <tr>
+                                <td colspan="6" style="text-align:center; padding:80px; color:#777;">
+                                    <i class="fas fa-inbox" style="font-size:3.5rem; color:#ccc; display:block; margin-bottom:15px;"></i>
+                                    No pending book requests at the moment.
+                                </td>
+                            </tr>
+                        <?php else: ?>
+                            <?php foreach ($requests as $req): 
+                                $date = date('M d, Y H:i', strtotime($req['request_date']));
+                                $initials = 'S' . $req['student_id']; // temporary - replace with real name when students table exists
+                            ?>
+                                <tr>
+                                    <td><?= $date ?></td>
+                                    <td>
+                                        <div class="requestor-info">
+                                            <div class="avatar"><?= $initials ?></div>
+                                            <span>Student #<?= $req['student_id'] ?></span>
+                                        </div>
+                                    </td>
+                                    <td class="book-title">
+                                        <?= htmlspecialchars($req['book_title']) ?>
+                                        <small>(<?= htmlspecialchars($req['call_number']) ?>)</small>
+                                    </td>
+                                    <td><?= ucfirst($req['request_type']) ?></td>
+                                    <td><span class="status-badge status-<?= $req['status'] ?>"><?= ucfirst($req['status']) ?></span></td>
+                                    <td>
+                                        <div class="action-buttons">
+                                            <?php if ($req['status'] === 'pending'): ?>
+                                                <form method="POST" style="display:inline;">
+                                                    <input type="hidden" name="request_id" value="<?= $req['id'] ?>">
+                                                    <input type="hidden" name="action" value="approve">
+                                                    <button type="submit" class="btn btn-approve">
+                                                        <i class="fas fa-check"></i> Approve
+                                                    </button>
+                                                </form>
+                                                <form method="POST" style="display:inline;">
+                                                    <input type="hidden" name="request_id" value="<?= $req['id'] ?>">
+                                                    <input type="hidden" name="action" value="reject">
+                                                    <button type="submit" class="btn btn-reject">
+                                                        <i class="fas fa-times"></i> Reject
+                                                    </button>
+                                                </form>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
                     </tbody>
                 </table>
-            </div>            
+            </div>
         </div>
+
         <?php include '../components/footer.php'; ?>
     </div>
 
     <script>
-        // Sample data for requested books
-        const requestedBooks = [
-            { id: 1, date: "2023-10-15", requestor: "John Smith", bookTitle: "The Great Gatsby", status: "stored" },
-            { id: 2, date: "2023-10-18", requestor: "Emma Johnson", bookTitle: "To Kill a Mockingbird", status: "stored" },
-            { id: 3, date: "2023-10-20", requestor: "Michael Brown", bookTitle: "1984", status: "not-stored" },
-            { id: 4, date: "2023-10-22", requestor: "Sarah Davis", bookTitle: "Pride and Prejudice", status: "stored" },
-            { id: 5, date: "2023-10-23", requestor: "David Wilson", bookTitle: "The Catcher in the Rye", status: "not-stored" },
-            { id: 6, date: "2023-10-25", requestor: "Lisa Anderson", bookTitle: "Brave New World", status: "stored" },
-            { id: 7, date: "2023-10-26", requestor: "Robert Taylor", bookTitle: "The Hobbit", status: "stored" },
-            { id: 8, date: "2023-10-28", requestor: "Maria Garcia", bookTitle: "Fahrenheit 451", status: "not-stored" },
-            { id: 9, date: "2023-10-29", requestor: "James Miller", bookTitle: "Moby Dick", status: "stored" },
-            { id: 10, date: "2023-10-30", requestor: "Jennifer Lee", bookTitle: "War and Peace", status: "stored" },
-            { id: 11, date: "2023-11-01", requestor: "Thomas Clark", bookTitle: "Crime and Punishment", status: "not-stored" },
-            { id: 12, date: "2023-11-02", requestor: "Patricia Lewis", bookTitle: "The Odyssey", status: "stored" }
-        ];
+        // Simple client-side search & filter
+        const searchInput = document.getElementById('search-input');
+        const statusFilter = document.getElementById('status-filter');
+        const dateFilter = document.getElementById('date-filter');
+        const rows = document.querySelectorAll('#table-body tr');
 
-        // Initialize with all books
-        let filteredBooks = [...requestedBooks];
-
-        // Function to render the table
-        function renderTable(books) {
-            const tableBody = document.getElementById('table-body');
-            tableBody.innerHTML = '';
-            
-            books.forEach(book => {
-                const row = document.createElement('tr');
-                
-                // Format date
-                const dateObj = new Date(book.date);
-                const formattedDate = dateObj.toLocaleDateString('en-US', { 
-                    year: 'numeric', 
-                    month: 'short', 
-                    day: 'numeric' 
-                });
-                
-                // Get initials for avatar
-                const initials = book.requestor.split(' ').map(name => name[0]).join('');
-                
-                // Determine status badge
-                const statusClass = book.status === 'stored' ? 'status-stored' : 'status-not-stored';
-                const statusText = book.status === 'stored' ? 'Stored' : 'Not Stored';
-                
-                row.innerHTML = `
-                    <td>${formattedDate}</td>
-                    <td>
-                        <div class="requestor-info">
-                            <div class="avatar">${initials}</div>
-                            <span>${book.requestor}</span>
-                        </div>
-                    </td>
-                    <td class="book-title">${book.bookTitle}</td>
-                    <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                    <td>
-                        <div class="action-buttons">
-                            <button class="btn btn-stored" onclick="markAsStored(${book.id})" ${book.status === 'stored' ? 'disabled' : ''}>
-                                <i class="fas fa-check"></i> Stored
-                            </button>
-                            <button class="btn btn-not-stored" onclick="markAsNotStored(${book.id})" ${book.status === 'not-stored' ? 'disabled' : ''}>
-                                <i class="fas fa-times"></i> Not Stored
-                            </button>
-                        </div>
-                    </td>
-                `;
-                
-                tableBody.appendChild(row);
-            });
-            
-            // Update statistics
-            updateStatistics(books);
-        }
-
-        // Function to update statistics
-        function updateStatistics(books) {
-            const totalRequests = books.length;
-            const storedBooks = books.filter(book => book.status === 'stored').length;
-            const pendingBooks = books.filter(book => book.status === 'not-stored').length;
-            
-            document.getElementById('total-requests').textContent = totalRequests;
-            document.getElementById('stored-books').textContent = storedBooks;
-            document.getElementById('pending-books').textContent = pendingBooks;
-        }
-
-        // Function to mark a book as stored
-        function markAsStored(id) {
-            const bookIndex = requestedBooks.findIndex(book => book.id === id);
-            if (bookIndex !== -1) {
-                requestedBooks[bookIndex].status = 'stored';
-                
-                // Reapply filters and render
-                applyFilters();
-                
-                // Show confirmation
-                showNotification(`Book marked as stored successfully!`, 'success');
-            }
-        }
-
-        // Function to mark a book as not stored
-        function markAsNotStored(id) {
-            const bookIndex = requestedBooks.findIndex(book => book.id === id);
-            if (bookIndex !== -1) {
-                requestedBooks[bookIndex].status = 'not-stored';
-                
-                // Reapply filters and render
-                applyFilters();
-                
-                // Show confirmation
-                showNotification(`Book marked as not stored!`, 'warning');
-            }
-        }
-
-        // Function to apply filters
         function applyFilters() {
-            const searchTerm = document.getElementById('search-input').value.toLowerCase();
-            const statusFilter = document.getElementById('status-filter').value;
-            const dateFilter = document.getElementById('date-filter').value;
-            
-            filteredBooks = requestedBooks.filter(book => {
-                // Apply search filter
-                const matchesSearch = 
-                    book.requestor.toLowerCase().includes(searchTerm) ||
-                    book.bookTitle.toLowerCase().includes(searchTerm) ||
-                    book.date.includes(searchTerm);
-                
-                // Apply status filter
-                const matchesStatus = 
-                    statusFilter === 'all' || 
-                    book.status === statusFilter;
-                
+            const searchTerm = searchInput.value.toLowerCase().trim();
+            const status = statusFilter.value;
+            const dateSort = dateFilter.value;
+
+            let visibleRows = Array.from(rows).filter(row => {
+                if (!row.cells) return false;
+                const text = row.textContent.toLowerCase();
+                const matchesSearch = searchTerm === '' || text.includes(searchTerm);
+                const statusCell = row.cells[4]?.textContent.toLowerCase() || '';
+                const matchesStatus = status === 'all' || statusCell.includes(status);
                 return matchesSearch && matchesStatus;
             });
-            
-            // Apply date sorting
-            filteredBooks.sort((a, b) => {
-                if (dateFilter === 'recent') {
-                    return new Date(b.date) - new Date(a.date);
-                } else {
-                    return new Date(a.date) - new Date(b.date);
-                }
-            });
-            
-            renderTable(filteredBooks);
+
+            // Sort by date
+            if (dateSort === 'oldest') {
+                visibleRows.sort((a, b) => new Date(a.cells[0].textContent) - new Date(b.cells[0].textContent));
+            } else {
+                visibleRows.sort((a, b) => new Date(b.cells[0].textContent) - new Date(a.cells[0].textContent));
+            }
+
+            rows.forEach(row => row.style.display = 'none');
+            visibleRows.forEach(row => row.style.display = '');
         }
 
-        // Function to show notification
-        function showNotification(message, type = 'success') {
-            // Create notification element
-            const notification = document.createElement('div');
-            const bgColor = type === 'success' ? '#2e7d32' : '#e76f51';
-            
-            notification.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                background-color: ${bgColor};
-                color: white;
-                padding: 15px 25px;
-                border-radius: 6px;
-                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-                z-index: 1000;
-                font-weight: 600;
-                animation: slideIn 0.3s ease-out;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-            `;
-            
-            const icon = type === 'success' ? 'fas fa-check-circle' : 'fas fa-exclamation-circle';
-            notification.innerHTML = `<i class="${icon}"></i> ${message}`;
-            document.body.appendChild(notification);
-            
-            // Remove notification after 3 seconds
-            setTimeout(() => {
-                notification.style.animation = 'slideOut 0.3s ease-out';
-                setTimeout(() => {
-                    document.body.removeChild(notification);
-                }, 300);
-            }, 3000);
-        }
-
-        // Add CSS for animation
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes slideIn {
-                from { transform: translateX(100%); opacity: 0; }
-                to { transform: translateX(0); opacity: 1; }
-            }
-            @keyframes slideOut {
-                from { transform: translateX(0); opacity: 1; }
-                to { transform: translateX(100%); opacity: 0; }
-            }
-        `;
-        document.head.appendChild(style);
-
-        // Initialize table on page load
-        document.addEventListener('DOMContentLoaded', () => {
-            renderTable(requestedBooks);
-            
-            // Set up event listeners for filters
-            document.getElementById('search-input').addEventListener('input', applyFilters);
-            document.getElementById('status-filter').addEventListener('change', applyFilters);
-            document.getElementById('date-filter').addEventListener('change', applyFilters);
-        });
+        searchInput.addEventListener('input', applyFilters);
+        statusFilter.addEventListener('change', applyFilters);
+        dateFilter.addEventListener('change', applyFilters);
     </script>
 </body>
 </html>
