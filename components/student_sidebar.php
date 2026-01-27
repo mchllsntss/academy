@@ -1,343 +1,336 @@
-<style>
-        /* Remove all sidebar collapse related styles */
-        .main-content-expanded {
-            margin-left: 256px;
-            transition: margin-left 0.3s ease;
-        }
-        
-        /* Green sidebar styling */
-        #sidebar {
-            background: linear-gradient(145deg, #2e7d32, #2e7d32, #2e7d32);
-            border-right: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 0 15px rgba(46, 125, 50, 0.3);
-            display: flex;
-            flex-direction: column;
-        }
-        
-        /* Header with white background and green text */
-        #sidebar .flex.items-center.justify-between {
-            background: transparent !important;
-            border-top-right-radius: 1rem;
-        }
-        
-        /* Logo container - transparent background */
-        .logo-container {
-            background: transparent !important;
-            padding: 0;
-            width: 100%;
-        }
-        
-        /* Green text for logo */
-        .logo-text {
-            color: white !important;
-        }
-        
-        .logo-text span:first-child {
-            color: white;
-            font-weight: 700;
-        }
-        
-        .logo-text span:last-child {
-            color: rgba(255, 255, 255, 0.9);
-        }
-        
-        /* Logo image styling - transparent background */
-        .logo-container img {
-            border-radius: 8px;
-            background: transparent;
-            padding: 0;
-        }
-        
-        #sidebar .nav-item {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            margin-bottom: 8px;
-            border-radius: 0.5rem;
-            transition: all 0.3s ease;
-        }
-        
-        #sidebar .nav-item:hover {
-            background: rgba(255, 255, 255, 0.25);
-            border-color: rgba(255, 255, 255, 0.3);
-            transform: translateX(5px);
-        }
-        
-        /* Active link styling */
-        #sidebar .nav-item.active {
-            background: rgba(255, 255, 255, 0.3);
-            border-color: rgba(255, 255, 255, 0.4);
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        
-        /* Navigation icon styling */
-        .nav-icon {
-            color: #e8f5e9;
-            font-size: 1.1rem;
-        }
-        
-        /* Open sidebar button */
-        #openSidebarBtn {
-            background: linear-gradient(to right, #2e7d32, #2e7d32);
-            color: white;
-            box-shadow: 0 4px 12px rgba(46, 125, 50, 0.4);
-        }
-        
-        #openSidebarBtn:hover {
-            background: linear-gradient(to right, #1b5e20, #2e7d32);
-            transform: scale(1.05);
-        }
-        
-        /* Scrollbar styling */
-        #sidebar::-webkit-scrollbar {
-            width: 6px;
-        }
-        
-        #sidebar::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
-        }
-        
-        #sidebar::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.3);
-            border-radius: 3px;
-        }
-        
-        #sidebar::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.4);
-        }
-        
-        /* Bottom right logout button styling */
-        .logout-container {
-            margin-top: auto;
-            padding: 20px;
-        }
-        
-        .logout-btn {
-            color: rgba(255, 255, 255, 0.8);
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 0.5rem;
-            padding: 12px 16px;
-            display: flex;
-            align-items: center;
-            justify-content: flex-start;
-            transition: all 0.3s ease;
-            width: 100%;
-        }
-        
-        .logout-btn:hover {
-            color: white;
-            background: rgba(255, 87, 87, 0.3);
-            border-color: rgba(255, 87, 87, 0.5);
-            transform: translateX(5px);
-            box-shadow: 0 4px 12px rgba(255, 87, 87, 0.2);
-        }
-        
-        .logout-btn i {
-            font-size: 1.2rem;
-            margin-right: 12px;
-            width: 24px;
-            text-align: center;
-        }
-        
-        .logout-text {
-            font-size: 1rem;
-            font-weight: 500;
-        }
-    </style>
-    <!-- Toggle Button (visible when sidebar is closed) -->
-    <button id="openSidebarBtn" class="fixed top-4 left-4 z-40 p-3 rounded-lg shadow-lg transition-all duration-300 hidden">
-        <i class="fas fa-bars text-lg"></i>
-    </button>
+<?php
+// student_sidebar.php
+// Start session kung hindi pa na-start
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
-    <!-- Sidebar -->
-    <div id="sidebar" class="fixed inset-y-0 left-0 w-64 text-white rounded-r-2xl shadow-xl z-30 transition-all duration-300 overflow-y-auto">
-       <!-- Header with transparent background -->
-       <div class="flex items-center justify-center h-24 px-4 rounded-tr-2xl">
-           <div class="flex flex-col items-center justify-center logo-container">
-               <img src="../images/logo.png" alt="La Trinidad Academy Logo" class="h-20 w-20 object-contain mb-2 mt-28">
-               <div class="logo-text text-center">
-                   <span class="text-xl font-bold block leading-tight">La Trinidad Academy</span>
-                   <span class="text-sm font-normal block">Welcome Student!</span>
-               </div>
-           </div>
-       </div>
-        
-        <!-- Navigation -->
-        <nav class="mt-28 px-4">
-            <a href="../pages/student_books.php" class="flex items-center py-3 px-4 transition-all duration-300 rounded-lg mb-2 nav-item" data-page="dashboard">
-                <i class="fas fa-tachometer-alt nav-icon mr-3 text-lg"></i>
-                <span class="nav-text">Book</span>
-            </a>
-            <a href="../pages/student_request_book.php" class="flex items-center py-3 px-4 transition-all duration-300 rounded-lg mb-2 nav-item" data-page="students">
-                <i class="fas fa-user nav-icon mr-3 text-lg"></i>
-                <span class="nav-text">Request Book</span>
-            </a>
-            <a href="../pages/student_borrowed_books.php" class="flex items-center py-3 px-4 transition-all duration-300 rounded-lg mb-2 nav-item" data-page="borrowed_books">
-                <i class="fas fa-book nav-icon mr-3 text-lg"></i>
-                <span class="nav-text">Borrowed Books</span>
-            </a>
-        </nav>
-        
-        <!-- Logout Button Container at Bottom -->
-        <div class="logout-container px-4">
-            <a href="../controller/logout.php" class="logout-btn">
-                <i class="fas fa-sign-out-alt"></i>
-                <span class="logout-text">Logout</span>
-            </a>
+require_once '../connection/dbconnection.php';
+
+// Default values
+$student_name = "Student";
+$profile_image = null;
+
+// Kunin ang student info kung logged in
+if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
+    $user_id = (int)$_SESSION['user_id'];
+
+    $stmt = $conn->prepare("
+        SELECT 
+            first_name,
+            last_name,
+            profile_image
+        FROM students 
+        WHERE user_id = ?
+        LIMIT 1
+    ");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    if ($student = $result->fetch_assoc()) {
+        $student_name = htmlspecialchars(trim($student['first_name'] . ' ' . $student['last_name']));
+        if (!empty($student['profile_image']) && file_exists('../' . $student['profile_image'])) {
+            $profile_image = '../' . htmlspecialchars($student['profile_image']);
+        }
+    }
+    $stmt->close();
+}
+?>
+
+<!-- Modern Green Sidebar with Dynamic Welcome -->
+<style>
+    /* Main content margin kapag bukas ang sidebar */
+    .main-content-expanded {
+        margin-left: 256px;
+        transition: margin-left 0.3s ease;
+    }
+
+    /* Sidebar Styling */
+    #sidebar {
+        background: linear-gradient(145deg, #2e7d32, #1b5e20);
+        border-right: 1px solid rgba(255, 255, 255, 0.15);
+        box-shadow: 0 0 20px rgba(46, 125, 50, 0.4);
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 256px;
+        height: 100vh;
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+        transition: transform 0.3s ease;
+        color: white;
+    }
+
+    /* Collapsed state (para sa mobile) */
+    #sidebar.close-sidebar {
+        transform: translateX(-100%);
+    }
+
+    /* Logo & Welcome Section */
+    .logo-container {
+        padding: 2rem 1rem;
+        text-align: center;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .student-welcome {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        margin-top: 1.5rem;
+        padding: 0 1rem;
+    }
+
+    .student-avatar {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 3px solid rgba(255,255,255,0.4);
+    }
+
+    .default-avatar {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        background: #4caf50;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 1.6rem;
+        border: 3px solid rgba(255,255,255,0.4);
+    }
+
+    .welcome-text {
+        text-align: left;
+    }
+
+    .welcome-text h3 {
+        font-size: 1.3rem;
+        font-weight: 700;
+        margin: 0;
+    }
+
+    .welcome-text p {
+        font-size: 0.9rem;
+        opacity: 0.9;
+        margin-top: 0.3rem;
+    }
+
+    /* Navigation Items */
+    .nav-item {
+        display: flex;
+        align-items: center;
+        padding: 1rem 1.5rem;
+        color: rgba(255,255,255,0.9);
+        text-decoration: none;
+        transition: all 0.3s ease;
+        margin: 0.3rem 1rem;
+        border-radius: 12px;
+        font-weight: 500;
+    }
+
+    .nav-item:hover {
+        background: rgba(255,255,255,0.15);
+        color: white;
+        transform: translateX(8px);
+    }
+
+    .nav-item.active {
+        background: rgba(255,255,255,0.25);
+        color: white;
+        font-weight: 600;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+
+    .nav-icon {
+        font-size: 1.3rem;
+        margin-right: 1rem;
+        width: 24px;
+        text-align: center;
+    }
+
+    /* Toggle Button (Mobile) */
+    #openSidebarBtn {
+        position: fixed;
+        top: 1rem;
+        left: 1rem;
+        z-index: 1100;
+        background: linear-gradient(90deg, #2e7d32, #4caf50);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        padding: 0.8rem 1rem;
+        box-shadow: 0 4px 15px rgba(46,125,50,0.5);
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: none;
+    }
+
+    #openSidebarBtn:hover {
+        transform: scale(1.08);
+        box-shadow: 0 6px 20px rgba(46,125,50,0.6);
+    }
+
+    /* Logout Button */
+    .logout-container {
+        margin-top: auto;
+        padding: 1.5rem;
+        border-top: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .logout-btn {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 1rem 1.5rem;
+        color: rgba(255,255,255,0.85);
+        background: rgba(255,87,87,0.1);
+        border: 1px solid rgba(255,87,87,0.3);
+        border-radius: 12px;
+        transition: all 0.3s ease;
+        font-weight: 500;
+    }
+
+    .logout-btn:hover {
+        background: rgba(255,87,87,0.3);
+        color: white;
+        transform: translateX(5px);
+        box-shadow: 0 4px 15px rgba(255,87,87,0.3);
+    }
+
+    /* Scrollbar */
+    #sidebar::-webkit-scrollbar {
+        width: 6px;
+    }
+    #sidebar::-webkit-scrollbar-track {
+        background: rgba(255,255,255,0.05);
+    }
+    #sidebar::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.3);
+        border-radius: 3px;
+    }
+    #sidebar::-webkit-scrollbar-thumb:hover {
+        background: rgba(255,255,255,0.5);
+    }
+
+    /* Responsive - Mobile */
+    @media (max-width: 1024px) {
+        #sidebar {
+            transform: translateX(-100%);
+        }
+        #sidebar:not(.close-sidebar) {
+            transform: translateX(0);
+        }
+        #openSidebarBtn {
+            display: block;
+        }
+        .main-content-expanded {
+            margin-left: 0;
+        }
+    }
+</style>
+
+<!-- Toggle Button (Mobile) -->
+<button id="openSidebarBtn" class="fixed top-4 left-4 z-40 p-3 rounded-lg shadow-lg transition-all duration-300">
+    <i class="fas fa-bars text-lg"></i>
+</button>
+
+<!-- Sidebar -->
+<div id="sidebar" class="text-white rounded-r-2xl shadow-xl overflow-y-auto">
+    <!-- Logo & Dynamic Welcome -->
+    <div class="logo-container">
+        <img src="../images/logo.png" alt="La Trinidad Academy Logo" class="h-20 w-20 object-contain mx-auto mb-4">
+        <div class="student-welcome">
+            <?php if ($profile_image): ?>
+                <img src="<?= $profile_image ?>" alt="Profile" class="student-avatar">
+            <?php else: ?>
+                <div class="default-avatar">
+                    <?= strtoupper(substr($student_name, 0, 1)) ?>
+                </div>
+            <?php endif; ?>
+            <div class="welcome-text">
+                <h3>Welcome, <?= $student_name ?>!</h3>
+                <p>Happy Reading!</p>
+            </div>
         </div>
     </div>
 
-    <script>
-        // Get DOM elements
-        const sidebar = document.getElementById('sidebar');
-        const openSidebarBtn = document.getElementById('openSidebarBtn');
-        const mainContent = document.getElementById('mainContent');
-        const navItems = document.querySelectorAll('#sidebar .nav-item');
-        
-        // State variable for closed state only
-        let isClosed = false;
-        
-        // Set active navigation item based on current page - FIXED VERSION
-        function setActiveNavItem() {
-            // Get current page filename
-            const currentPage = window.location.pathname.split('/').pop();
-            
-            // Clean the page name - remove .php extension and any query parameters
-            const cleanCurrentPage = currentPage.replace('.php', '').split('?')[0];
-            
-            console.log('Current page cleaned:', cleanCurrentPage);
-            
-            navItems.forEach(item => {
-                const href = item.getAttribute('href');
-                if (href) {
-                    // Get the page name from href
-                    const hrefPage = href.split('/').pop();
-                    // Clean the href page name
-                    const cleanHrefPage = hrefPage.replace('.php', '').split('?')[0];
-                    
-                    console.log('Checking:', cleanHrefPage, 'against', cleanCurrentPage);
-                    
-                    // Use exact match for the cleaned page names
-                    if (cleanHrefPage === cleanCurrentPage) {
-                        item.classList.add('active');
-                        console.log('✓ Active item:', cleanHrefPage);
-                    } else {
-                        item.classList.remove('active');
-                    }
-                }
-            });
+    <!-- Navigation -->
+    <nav class="mt-8 px-4">
+        <a href="../pages/student_books.php" class="nav-item" data-page="student_books">
+            <i class="fas fa-book nav-icon"></i>
+            <span>Books</span>
+        </a>
+        <a href="../pages/student_request_book.php" class="nav-item" data-page="student_request_book">
+            <i class="fas fa-hand-paper nav-icon"></i>
+            <span>Request Book</span>
+        </a>
+        <a href="../pages/student_borrowed_books.php" class="nav-item" data-page="student_borrowed_books">
+            <i class="fas fa-book-reader nav-icon"></i>
+            <span>Borrowed Books</span>
+        </a>
+        <!-- Pwede ka magdagdag ng iba pang links dito -->
+    </nav>
+
+    <!-- Logout at Bottom -->
+    <div class="logout-container">
+        <a href="../controller/logout.php" class="logout-btn">
+            <i class="fas fa-sign-out-alt mr-3"></i>
+            <span>Logout</span>
+        </a>
+    </div>
+</div>
+
+<script>
+    // DOM Elements
+    const sidebar = document.getElementById('sidebar');
+    const openBtn = document.getElementById('openSidebarBtn');
+    const mainContent = document.querySelector('.main-content-expanded') || document.querySelector('.main-content');
+    const navItems = document.querySelectorAll('#sidebar .nav-item');
+
+    // Toggle Sidebar (for mobile)
+    openBtn.addEventListener('click', () => {
+        sidebar.classList.toggle('close-sidebar');
+        openBtn.classList.toggle('hidden');
+        if (mainContent) {
+            mainContent.style.marginLeft = sidebar.classList.contains('close-sidebar') ? '0' : '256px';
         }
+    });
+
+    // Set active navigation item
+    function setActiveNav() {
+        const currentPage = window.location.pathname.split('/').pop().replace('.php', '');
         
-        // Alternative method using data-page attribute (more reliable)
-        function setActiveNavItemByDataAttribute() {
-            // Get current page filename
-            const currentPage = window.location.pathname.split('/').pop();
-            // Clean the page name
-            const cleanCurrentPage = currentPage.replace('.php', '').split('?')[0];
-            
-            console.log('Setting active nav item for:', cleanCurrentPage);
-            
-            navItems.forEach(item => {
-                const pageAttribute = item.getAttribute('data-page');
-                if (pageAttribute === cleanCurrentPage) {
-                    item.classList.add('active');
-                    console.log('✓ Active via data-page:', pageAttribute);
-                } else {
-                    item.classList.remove('active');
-                }
-            });
-        }
-        
-        // Close sidebar function
-        function closeSidebar() {
-            sidebar.classList.add('close-sidebar');
-            openSidebarBtn.classList.remove('hidden');
-            isClosed = true;
-            
-            // Remove margin from main content
-            if (mainContent) {
-                mainContent.classList.remove('main-content-expanded');
-                mainContent.style.marginLeft = '0';
-            }
-            saveSidebarState();
-        }
-        
-        // Open sidebar when closed
-        openSidebarBtn.addEventListener('click', () => {
-            sidebar.classList.remove('close-sidebar');
-            openSidebarBtn.classList.add('hidden');
-            if (mainContent) {
-                mainContent.classList.add('main-content-expanded');
-            }
-            isClosed = false;
-            saveSidebarState();
-        });
-        
-        // Store sidebar state in localStorage for persistence
-        function saveSidebarState() {
-            const state = {
-                isClosed: isClosed
-            };
-            localStorage.setItem('sidebarState', JSON.stringify(state));
-        }
-        
-        function loadSidebarState() {
-            const savedState = localStorage.getItem('sidebarState');
-            if (savedState) {
-                const state = JSON.parse(savedState);
-                isClosed = state.isClosed;
-                
-                if (isClosed) {
-                    sidebar.classList.add('close-sidebar');
-                    openSidebarBtn.classList.remove('hidden');
-                    if (mainContent) {
-                        mainContent.classList.remove('main-content-expanded');
-                        mainContent.style.marginLeft = '0';
-                    }
-                }
-            }
-        }
-        
-        // Load saved state on page load and set active nav item
-        document.addEventListener('DOMContentLoaded', () => {
-            loadSidebarState();
-            // Use the data-attribute method for more reliable matching
-            setActiveNavItemByDataAttribute();
-            
-            // Also run the href method for backward compatibility
-            setActiveNavItem();
-        });
-        
-        // Save state when sidebar is opened/closed
-        openSidebarBtn.addEventListener('click', saveSidebarState);
-        
-        // Update active nav item when clicked (immediate feedback)
         navItems.forEach(item => {
-            item.addEventListener('click', (e) => {
-                // Don't prevent default - let the link work normally
-                console.log('Nav item clicked:', item.getAttribute('data-page'));
-                
-                // Update active state immediately
+            const page = item.getAttribute('data-page');
+            if (page === currentPage) {
+                item.classList.add('active');
+            } else {
+                item.classList.remove('active');
+            }
+        });
+    }
+
+    // Run on page load
+    document.addEventListener('DOMContentLoaded', () => {
+        setActiveNav();
+
+        // Highlight on click (before navigation)
+        navItems.forEach(item => {
+            item.addEventListener('click', () => {
                 navItems.forEach(i => i.classList.remove('active'));
                 item.classList.add('active');
-                
-                // Save the active state to sessionStorage for immediate feedback
-                const pageName = item.getAttribute('data-page');
-                sessionStorage.setItem('lastActivePage', pageName);
             });
         });
-        
-        // Check sessionStorage for last active page on page load
-        window.addEventListener('pageshow', () => {
-            const lastActivePage = sessionStorage.getItem('lastActivePage');
-            if (lastActivePage) {
-                navItems.forEach(item => {
-                    if (item.getAttribute('data-page') === lastActivePage) {
-                        item.classList.add('active');
-                    }
-                });
-            }
-        });
-    </script>
-</body>
+    });
+
+    // Update active on back/forward navigation
+    window.addEventListener('popstate', setActiveNav);
+</script>
