@@ -6,9 +6,7 @@ require_once '../connection/dbconnection.php';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'], $_POST['action'])) {
     $request_id = (int)$_POST['request_id'];
     $action = $_POST['action'];
-
     $new_status = ($action === 'approve') ? 'approved' : 'rejected';
-
     $stmt = $conn->prepare("UPDATE book_requests SET status = ? WHERE id = ?");
     $stmt->bind_param("si", $new_status, $request_id);
     
@@ -27,12 +25,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'], $_POST[
     $stmt->close();
 }
 
-// Fetch all requests (no join to students)
+// Fetch all requests with real student_id and name from students table
 $requests = [];
 $result = $conn->query("
-    SELECT 
+    SELECT
         r.id,
-        r.student_id,
+        s.student_id,                           -- Real student_id (2025-12314, etc.)
+        CONCAT(s.first_name, ' ', s.last_name) AS student_name,
         r.book_id,
         r.request_type,
         r.request_date,
@@ -41,6 +40,7 @@ $result = $conn->query("
         b.call_number
     FROM book_requests r
     JOIN books b ON r.book_id = b.id
+    LEFT JOIN students s ON r.student_id = s.user_id
     ORDER BY r.request_date DESC
 ");
 if ($result) {
@@ -325,7 +325,6 @@ if ($result) {
 <body>
     <?php include '../components/header.php'; ?>
     <?php include '../components/sidebar.php'; ?>
-
     <div class="content-wrapper">
         <div class="container">
             <?php if (isset($message)): ?>
@@ -359,6 +358,7 @@ if ($result) {
                         <tr>
                             <th>Date <i class="fas fa-sort"></i></th>
                             <th>Student ID <i class="fas fa-sort"></i></th>
+                            <th>Student Name <i class="fas fa-sort"></i></th>
                             <th>Book Title <i class="fas fa-sort"></i></th>
                             <th>Type</th>
                             <th>Status</th>
@@ -368,27 +368,27 @@ if ($result) {
                     <tbody id="table-body">
                         <?php if (empty($requests)): ?>
                             <tr>
-                                <td colspan="6" style="text-align:center; padding:80px; color:#777;">
+                                <td colspan="7" style="text-align:center; padding:80px; color:#777;">
                                     <i class="fas fa-inbox" style="font-size:3.5rem; color:#ccc; display:block; margin-bottom:15px;"></i>
                                     No pending book requests at the moment.
                                 </td>
                             </tr>
                         <?php else: ?>
-                            <?php foreach ($requests as $req): 
+                            <?php foreach ($requests as $req):
                                 $date = date('M d, Y H:i', strtotime($req['request_date']));
-                                $initials = 'S' . $req['student_id']; // temporary - replace with real name when students table exists
                             ?>
                                 <tr>
                                     <td><?= $date ?></td>
+                                    <td><?= htmlspecialchars($req['student_id'] ?: '—') ?></td>
                                     <td>
                                         <div class="requestor-info">
-                                            <div class="avatar"><?= $initials ?></div>
-                                            <span>Student #<?= $req['student_id'] ?></span>
+                                            <div class="avatar"><?= strtoupper(substr($req['student_name'] ?? 'U', 0, 1)) ?></div>
+                                            <span><?= htmlspecialchars($req['student_name'] ?: 'Unknown') ?></span>
                                         </div>
                                     </td>
                                     <td class="book-title">
                                         <?= htmlspecialchars($req['book_title']) ?>
-                                        <small>(<?= htmlspecialchars($req['call_number']) ?>)</small>
+                                        <small>(<?= htmlspecialchars($req['call_number'] ?? '—') ?>)</small>
                                     </td>
                                     <td><?= ucfirst($req['request_type']) ?></td>
                                     <td><span class="status-badge status-<?= $req['status'] ?>"><?= ucfirst($req['status']) ?></span></td>
@@ -419,7 +419,6 @@ if ($result) {
                 </table>
             </div>
         </div>
-
         <?php include '../components/footer.php'; ?>
     </div>
 
@@ -434,23 +433,20 @@ if ($result) {
             const searchTerm = searchInput.value.toLowerCase().trim();
             const status = statusFilter.value;
             const dateSort = dateFilter.value;
-
             let visibleRows = Array.from(rows).filter(row => {
                 if (!row.cells) return false;
                 const text = row.textContent.toLowerCase();
                 const matchesSearch = searchTerm === '' || text.includes(searchTerm);
-                const statusCell = row.cells[4]?.textContent.toLowerCase() || '';
+                const statusCell = row.cells[5]?.textContent.toLowerCase() || '';
                 const matchesStatus = status === 'all' || statusCell.includes(status);
                 return matchesSearch && matchesStatus;
             });
-
             // Sort by date
             if (dateSort === 'oldest') {
                 visibleRows.sort((a, b) => new Date(a.cells[0].textContent) - new Date(b.cells[0].textContent));
             } else {
                 visibleRows.sort((a, b) => new Date(b.cells[0].textContent) - new Date(a.cells[0].textContent));
             }
-
             rows.forEach(row => row.style.display = 'none');
             visibleRows.forEach(row => row.style.display = '');
         }

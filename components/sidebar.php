@@ -175,7 +175,7 @@
             </a>
             <a href="../pages/borrowed_books.php" class="flex items-center py-3 px-4 transition-all duration-300 rounded-lg mb-2 nav-item" data-page="borrowed_books">
                 <i class="fas fa-book nav-icon mr-3 text-lg"></i>
-                <span class="nav-text">Borrowed Books</span>
+                <span class="nav-text">Books Requested</span>
             </a>
             <a href="../pages/books.php" class="flex items-center py-3 px-4 transition-all duration-300 rounded-lg mb-2 nav-item" data-page="books">
                 <i class="fas fa-book-open nav-icon mr-3 text-lg"></i>
@@ -183,7 +183,11 @@
             </a>
             <a href="../pages/requested_books.php" class="flex items-center py-3 px-4 transition-all duration-300 rounded-lg mb-2 nav-item" data-page="requested_books">
                 <i class="fas fa-users nav-icon mr-3 text-lg"></i>
-                <span class="nav-text">Requested Books</span>
+                <span class="nav-text">Borrowing Books</span>
+            </a>
+            <a href="../pages/returned_books.php" class="flex items-center py-3 px-4 transition-all duration-300 rounded-lg mb-2 nav-item" data-page="returned_books">
+                <i class="fas fa-users nav-icon mr-3 text-lg"></i>
+                <span class="nav-text">Returning Books</span>
             </a>
         </nav>
         
