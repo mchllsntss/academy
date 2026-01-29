@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jan 27, 2026 at 04:56 PM
+-- Generation Time: Jan 29, 2026 at 03:23 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -52,6 +52,34 @@ INSERT INTO `books` (`id`, `call_number`, `title`, `shelf_location`, `author`, `
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `books_requests`
+--
+
+CREATE TABLE `books_requests` (
+  `id` int(11) NOT NULL,
+  `student_id` int(11) NOT NULL,
+  `book_title` varchar(255) NOT NULL,
+  `author` varchar(255) DEFAULT NULL,
+  `isbn` varchar(50) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `request_date` date NOT NULL,
+  `status` enum('pending','approved','rejected') DEFAULT 'pending',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `books_requests`
+--
+
+INSERT INTO `books_requests` (`id`, `student_id`, `book_title`, `author`, `isbn`, `notes`, `request_date`, `status`, `created_at`, `updated_at`) VALUES
+(1, 5, 'dd', 'dd', 'dd', 'dd', '2026-01-28', 'approved', '2026-01-28 16:15:26', NULL),
+(2, 5, '123', '123', '213', '123', '2026-01-28', 'pending', '2026-01-28 17:27:45', NULL),
+(3, 3, '123444', '123', '123', '123444', '2026-01-28', 'rejected', '2026-01-28 17:28:18', NULL);
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `book_requests`
 --
 
@@ -61,19 +89,24 @@ CREATE TABLE `book_requests` (
   `book_id` int(11) NOT NULL,
   `request_type` enum('reserve','borrow') NOT NULL,
   `request_date` timestamp NOT NULL DEFAULT current_timestamp(),
-  `status` enum('pending','approved','rejected','cancelled') DEFAULT 'pending',
+  `status` enum('pending','approved','rejected','borrowed','return_pending','returned') DEFAULT 'pending',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `return_date` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `book_requests`
 --
 
-INSERT INTO `book_requests` (`id`, `student_id`, `book_id`, `request_type`, `request_date`, `status`, `created_at`, `updated_at`) VALUES
-(1, 1, 3, 'reserve', '2026-01-27 11:32:00', 'pending', '2026-01-27 11:32:00', '2026-01-27 11:32:00'),
-(2, 1, 3, 'borrow', '2026-01-27 11:32:03', 'approved', '2026-01-27 11:32:03', '2026-01-27 11:34:20'),
-(3, 5, 3, 'borrow', '2026-01-27 15:48:14', 'approved', '2026-01-27 15:48:14', '2026-01-27 15:48:38');
+INSERT INTO `book_requests` (`id`, `student_id`, `book_id`, `request_type`, `request_date`, `status`, `created_at`, `updated_at`, `return_date`) VALUES
+(1, 1, 3, 'reserve', '2026-01-27 11:32:00', 'pending', '2026-01-27 11:32:00', '2026-01-27 11:32:00', NULL),
+(2, 1, 3, 'borrow', '2026-01-27 11:32:03', 'approved', '2026-01-27 11:32:03', '2026-01-27 11:34:20', NULL),
+(3, 5, 3, 'borrow', '2026-01-27 15:48:14', 'returned', '2026-01-27 15:48:14', '2026-01-28 18:52:20', NULL),
+(4, 5, 3, 'borrow', '2026-01-28 16:41:39', 'returned', '2026-01-28 16:41:39', '2026-01-29 08:17:36', NULL),
+(5, 5, 4, 'borrow', '2026-01-28 17:43:17', 'pending', '2026-01-28 17:43:17', '2026-01-28 17:43:17', NULL),
+(6, 3, 4, 'borrow', '2026-01-28 17:58:13', 'pending', '2026-01-28 17:58:13', '2026-01-28 17:58:13', NULL),
+(7, 3, 4, 'borrow', '2026-01-28 18:03:28', 'pending', '2026-01-28 18:03:28', '2026-01-28 18:03:28', NULL);
 
 -- --------------------------------------------------------
 
@@ -163,6 +196,13 @@ ALTER TABLE `books`
   ADD KEY `idx_author` (`author`);
 
 --
+-- Indexes for table `books_requests`
+--
+ALTER TABLE `books_requests`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `student_id` (`student_id`);
+
+--
 -- Indexes for table `book_requests`
 --
 ALTER TABLE `book_requests`
@@ -204,10 +244,16 @@ ALTER TABLE `books`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
+-- AUTO_INCREMENT for table `books_requests`
+--
+ALTER TABLE `books_requests`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+
+--
 -- AUTO_INCREMENT for table `book_requests`
 --
 ALTER TABLE `book_requests`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
 -- AUTO_INCREMENT for table `profile`
@@ -230,6 +276,12 @@ ALTER TABLE `users`
 --
 -- Constraints for dumped tables
 --
+
+--
+-- Constraints for table `books_requests`
+--
+ALTER TABLE `books_requests`
+  ADD CONSTRAINT `books_requests_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`user_id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `book_requests`
