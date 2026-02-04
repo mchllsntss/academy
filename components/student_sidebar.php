@@ -246,7 +246,7 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
 <div id="sidebar" class="text-white rounded-r-2xl shadow-xl overflow-y-auto">
     <!-- Logo & Dynamic Welcome -->
     <div class="logo-container">
-        <img src="../images/logo.png" alt="La Trinidad Academy Logo" class="h-20 w-20 object-contain mx-auto mb-4">
+        <!-- <img src="../images/logo.png" alt="La Trinidad Academy Logo" class="h-20 w-20 object-contain mx-auto mb-4"> -->
         <div class="student-welcome">
             <?php if ($profile_image): ?>
                 <img src="<?= $profile_image ?>" alt="Profile" class="student-avatar">
