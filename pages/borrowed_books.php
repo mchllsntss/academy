@@ -1,26 +1,22 @@
 <?php
-// admin_book_requests.php - Manage Pending + Full History (with ID column)
+// admin_book_requests.php - Manage Pending + Full History (with ID column) + Pagination on History
 session_start();
 require_once '../connection/dbconnection.php';
-
 // Simple admin check (palitan mo ng proper role check later)
 if (!isset($_SESSION['user_id']) || $_SESSION['user_id'] != 1) { // admin = user_id 1
     header("Location: ../pages/login.php?error=Admin access only");
     exit;
 }
-
 // Handle approve/reject
 $message = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $request_id = (int)$_POST['request_id'];
     $action = $_POST['action'] ?? '';
-
     if ($action === 'approve') {
         $stmt = $conn->prepare("UPDATE books_requests SET status = 'approved' WHERE id = ? AND status = 'pending'");
     } elseif ($action === 'reject') {
         $stmt = $conn->prepare("UPDATE books_requests SET status = 'rejected' WHERE id = ? AND status = 'pending'");
     }
-
     if (isset($stmt)) {
         $stmt->bind_param("i", $request_id);
         if ($stmt->execute() && $stmt->affected_rows > 0) {
@@ -31,11 +27,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->close();
     }
 }
-
-// Fetch PENDING requests only (main table - with ID)
+// Fetch PENDING requests only (main table - with ID) - NO PAGINATION (usually few pending)
 $pending_requests = [];
 $stmt_pending = $conn->prepare("
-    SELECT 
+    SELECT
         br.id,
         s.student_id AS display_student_id,
         CONCAT(s.first_name, ' ', s.last_name) AS student_name,
@@ -58,10 +53,31 @@ if ($stmt_pending) {
     $stmt_pending->close();
 }
 
-// Fetch ALL requests (for history section)
+// Pagination for History Section (5 per page)
+$per_page = 5;
+$page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+$offset = ($page - 1) * $per_page;
+
+// Total count for history
+$total_history = 0;
+$count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM books_requests");
+$count_stmt->execute();
+$count_result = $count_stmt->get_result();
+$total_history = $count_result->fetch_assoc()['total'];
+$count_stmt->close();
+
+$total_pages = $total_history > 0 ? ceil($total_history / $per_page) : 0;
+
+// Adjust page if out of bounds
+if ($page > $total_pages && $total_pages > 0) {
+    $page = $total_pages;
+    $offset = ($page - 1) * $per_page;
+}
+
+// Fetch paginated ALL requests (for history section)
 $all_requests = [];
 $stmt_all = $conn->prepare("
-    SELECT 
+    SELECT
         br.id,
         s.student_id AS display_student_id,
         CONCAT(s.first_name, ' ', s.last_name) AS student_name,
@@ -75,15 +91,16 @@ $stmt_all = $conn->prepare("
     FROM books_requests br
     LEFT JOIN students s ON br.student_id = s.user_id
     ORDER BY br.created_at DESC
+    LIMIT ? OFFSET ?
 ");
 if ($stmt_all) {
+    $stmt_all->bind_param("ii", $per_page, $offset);
     $stmt_all->execute();
     $result_all = $stmt_all->get_result();
     $all_requests = $result_all->fetch_all(MYSQLI_ASSOC);
     $stmt_all->close();
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -184,6 +201,32 @@ if ($stmt_all) {
             margin-bottom:20px;
             font-size:1.8rem;
         }
+
+        /* Pagination */
+        .pagination {
+            text-align: center;
+            margin: 40px 0;
+        }
+        .pagination a, .pagination span {
+            display: inline-block;
+            padding: 10px 18px;
+            margin: 0 6px;
+            background-color: #2e7d32;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.25s;
+        }
+        .pagination a:hover {
+            background-color: #1b5e20;
+            transform: translateY(-2px);
+        }
+        .pagination .current {
+            background-color: #1b5e20;
+            cursor: default;
+        }
+
         @media (max-width:992px) {
             .sidebar { transform:translateX(-100%); }
             .main-content { margin-left:0; }
@@ -193,7 +236,6 @@ if ($stmt_all) {
 <body>
     <?php include '../components/header.php'; ?>
     <?php include '../components/sidebar.php'; ?>  <!-- Admin sidebar -->
-
     <div class="app-wrapper">
         <div class="main-content">
             <div class="container">
@@ -201,16 +243,14 @@ if ($stmt_all) {
                     <h1><i class="fas fa-book-medical"></i> Manage Book Requests</h1>
                     <p>Approve or reject pending student book requests</p>
                 </div>
-
                 <div class="search-box">
                     <input type="text" id="searchInput" placeholder="Search by student ID (e.g., 2025-12314) or book title...">
                 </div>
-
                 <div class="table-container">
                     <table id="requestsTable">
                         <thead>
                             <tr>
-                                <th>ID</th> <!-- Balik na yung ID column -->
+                                <th>ID</th>
                                 <th>Student ID</th>
                                 <th>Student Name</th>
                                 <th>Book Title</th>
@@ -234,7 +274,7 @@ if ($stmt_all) {
                             <?php else: ?>
                                 <?php foreach ($pending_requests as $req): ?>
                                     <tr data-search="<?= strtolower($req['student_name'] . ' ' . $req['book_title'] . ' ' . $req['display_student_id']) ?>">
-                                        <td><?= $req['id'] ?></td> <!-- ID column balik na -->
+                                        <td><?= $req['id'] ?></td>
                                         <td><?= htmlspecialchars($req['display_student_id'] ?: '—') ?></td>
                                         <td><?= htmlspecialchars($req['student_name'] ?: 'Unknown') ?></td>
                                         <td><?= htmlspecialchars($req['book_title']) ?></td>
@@ -266,15 +306,13 @@ if ($stmt_all) {
                         </tbody>
                     </table>
                 </div>
-
                 <!-- Message - lalabas dito pag may action -->
                 <?php if ($message): ?>
                     <div class="message <?= strpos($message, 'successfully') !== false ? 'success' : 'error' ?>">
                         <?= $message ?>
                     </div>
                 <?php endif; ?>
-
-                <!-- History Section - Lahat ng requests (pending, approved, rejected) -->
+                <!-- History Section - Lahat ng requests (pending, approved, rejected) with Pagination -->
                 <div class="history-section">
                     <h2><i class="fas fa-history"></i> History of All Book Requests</h2>
                     <div class="table-container">
@@ -307,7 +345,7 @@ if ($stmt_all) {
                                             <td><?= htmlspecialchars($req['book_title']) ?></td>
                                             <td><?= date('M d, Y', strtotime($req['request_date'])) ?></td>
                                             <td>
-                                                <span class="status-<?= $req['status'] ?>">
+                                                <span class="status-<?= strtolower($req['status']) ?>">
                                                     <?= ucfirst($req['status']) ?>
                                                 </span>
                                             </td>
@@ -318,11 +356,31 @@ if ($stmt_all) {
                             </tbody>
                         </table>
                     </div>
+
+                    <!-- Pagination Controls -->
+                    <?php if ($total_pages > 1): ?>
+                        <div class="pagination">
+                            <?php if ($page > 1): ?>
+                                <a href="?page=<?= $page - 1 ?>">&laquo; Previous</a>
+                            <?php endif; ?>
+
+                            <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                                <?php if ($i == $page): ?>
+                                    <span class="current"><?= $i ?></span>
+                                <?php else: ?>
+                                    <a href="?page=<?= $i ?>"><?= $i ?></a>
+                                <?php endif; ?>
+                            <?php endfor; ?>
+
+                            <?php if ($page < $total_pages): ?>
+                                <a href="?page=<?= $page + 1 ?>">Next &raquo;</a>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
     </div>
-
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
         // Live search for main table (pending only)
@@ -334,7 +392,6 @@ if ($stmt_all) {
                 row.style.display = text.includes(filter) ? '' : 'none';
             });
         });
-
         // Confirm before approve/reject
         document.querySelectorAll('form').forEach(form => {
             form.addEventListener('submit', function(e) {

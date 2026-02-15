@@ -171,7 +171,7 @@
             </a>
             <a href="../pages/students.php" class="flex items-center py-3 px-4 transition-all duration-300 rounded-lg mb-2 nav-item" data-page="students">
                 <i class="fas fa-user nav-icon mr-3 text-lg"></i>
-                <span class="nav-text">Students</span>
+                <span class="nav-text">Members</span>
             </a>
             <a href="../pages/borrowed_books.php" class="flex items-center py-3 px-4 transition-all duration-300 rounded-lg mb-2 nav-item" data-page="borrowed_books">
                 <i class="fas fa-book nav-icon mr-3 text-lg"></i>
