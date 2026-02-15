@@ -1,5 +1,5 @@
 <?php
-// student_borrowed_books.php - My Borrowed Books + History
+// student_borrowed_books.php - My Borrowed Books + History with Admin Notes + Pagination for History
 session_start();
 require_once '../connection/dbconnection.php';
 
@@ -8,7 +8,6 @@ if (!isset($_SESSION['user_id']) || !is_numeric($_SESSION['user_id'])) {
     header("Location: ../pages/login.php?error=Please log in first");
     exit;
 }
-
 $user_id = (int)$_SESSION['user_id'];
 
 // Handle return request
@@ -16,15 +15,13 @@ $return_success = false;
 $return_error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['return_book'])) {
     $request_id = (int)$_POST['request_id'];
-
     $stmt = $conn->prepare("
-        UPDATE book_requests 
-        SET status = 'return_pending', 
+        UPDATE book_requests
+        SET status = 'return_pending',
             updated_at = NOW()
         WHERE id = ? AND student_id = ? AND status IN ('approved', 'borrowed')
     ");
     $stmt->bind_param("ii", $request_id, $user_id);
-
     if ($stmt->execute() && $stmt->affected_rows > 0) {
         $return_success = true;
     } else {
@@ -33,10 +30,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['return_book'])) {
     $stmt->close();
 }
 
-// Fetch currently borrowed books (only approved/borrowed)
+// Fetch currently borrowed books (including return_pending so student sees it until admin confirms)
 $current_borrowed = [];
 $stmt_current = $conn->prepare("
-    SELECT 
+    SELECT
         br.id AS request_id,
         b.title AS book_title,
         br.request_date AS borrowed_on,
@@ -46,7 +43,7 @@ $stmt_current = $conn->prepare("
     JOIN books b ON br.book_id = b.id
     WHERE br.student_id = ?
       AND br.request_type = 'borrow'
-      AND br.status IN ('approved', 'borrowed')
+      AND br.status IN ('approved', 'borrowed', 'return_pending')
     ORDER BY br.request_date DESC
 ");
 if ($stmt_current) {
@@ -57,28 +54,50 @@ if ($stmt_current) {
     $stmt_current->close();
 }
 
-// Fetch history (all borrow requests for this student)
+// Pagination for Borrowing History (5 items per page)
+$per_page = 5;
+$page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+$offset = ($page - 1) * $per_page;
+
+// Get total history count
+$count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM book_requests WHERE student_id = ? AND request_type = 'borrow'");
+$count_stmt->bind_param("i", $user_id);
+$count_stmt->execute();
+$count_result = $count_stmt->get_result();
+$total_rows = $count_result->fetch_assoc()['total'];
+$count_stmt->close();
+
+$total_pages = $total_rows > 0 ? ceil($total_rows / $per_page) : 0;
+
+// Adjust page if out of bounds
+if ($page > $total_pages && $total_pages > 0) {
+    $page = $total_pages;
+    $offset = ($page - 1) * $per_page;
+}
+
+// Fetch history with pagination
 $history = [];
 $stmt_history = $conn->prepare("
-    SELECT 
+    SELECT
         b.title AS book_title,
         br.status,
-        br.updated_at
+        br.updated_at,
+        br.admin_notes
     FROM book_requests br
     JOIN books b ON br.book_id = b.id
     WHERE br.student_id = ?
       AND br.request_type = 'borrow'
     ORDER BY br.updated_at DESC
+    LIMIT ? OFFSET ?
 ");
 if ($stmt_history) {
-    $stmt_history->bind_param("i", $user_id);
+    $stmt_history->bind_param("iii", $user_id, $per_page, $offset);
     $stmt_history->execute();
     $result_history = $stmt_history->get_result();
     $history = $result_history->fetch_all(MYSQLI_ASSOC);
     $stmt_history->close();
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -268,6 +287,42 @@ if ($stmt_history) {
             border-top: 1px solid #e0f2e9;
             border-bottom: 1px solid #e0f2e9;
         }
+        .admin-notes {
+            max-width: 300px;
+            word-wrap: break-word;
+            font-size: 0.95em;
+            color: #555;
+        }
+        .admin-notes:empty::before {
+            content: '—';
+            color: #aaa;
+        }
+
+        /* Pagination Styles */
+        .pagination {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .pagination a, .pagination span {
+            display: inline-block;
+            padding: 10px 16px;
+            margin: 0 6px;
+            background-color: #4caf50;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.25s;
+        }
+        .pagination a:hover {
+            background-color: #388e3c;
+            transform: translateY(-2px);
+        }
+        .pagination .current {
+            background-color: #2e7d32;
+            cursor: default;
+        }
+
         @media (max-width: 992px) {
             .page-wrapper { flex-direction: column; }
             .sidebar { width: 100%; }
@@ -301,20 +356,18 @@ if ($stmt_history) {
         <aside class="sidebar">
             <?php include '../components/student_sidebar.php'; ?>
         </aside>
-
         <!-- Main Content -->
         <main class="main-content">
             <?php include '../components/header.php'; ?>
-
             <div class="container">
                 <div class="header-section">
                     <h1><i class="fas fa-book-reader"></i> My Borrowed Books</h1>
                     <p>View all books you currently have borrowed. You can request to return them anytime.</p>
                 </div>
 
+                <!-- Currently Borrowed -->
                 <div class="borrowed-card">
                     <h2><i class="fas fa-hand-holding-book"></i> Currently Borrowed</h2>
-
                     <?php if (empty($current_borrowed)): ?>
                         <div class="no-books">
                             <i class="fas fa-book-open"></i><br>
@@ -333,7 +386,7 @@ if ($stmt_history) {
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($current_borrowed as $book): 
+                                <?php foreach ($current_borrowed as $book):
                                     $due_date = new DateTime($book['due_date']);
                                     $today = new DateTime();
                                     $overdue = $today > $due_date;
@@ -367,10 +420,9 @@ if ($stmt_history) {
                     <?php endif; ?>
                 </div>
 
-                <!-- History Section -->
+                <!-- Borrowing History with Pagination -->
                 <div class="borrowed-card">
-                    <h2><i class="fas fa-history"></i> History Borrowed</h2>
-
+                    <h2><i class="fas fa-history"></i> Borrowing History</h2>
                     <?php if (empty($history)): ?>
                         <div class="no-books">
                             <i class="fas fa-history"></i><br>
@@ -383,22 +435,49 @@ if ($stmt_history) {
                                     <th>Book Title</th>
                                     <th>Status</th>
                                     <th>Updated At</th>
+                                    <th>Admin Notes</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($history as $hist): ?>
+                                <?php foreach ($history as $hist):
+                                    $notes = $hist['admin_notes'];
+                                    $notesDisplay = $notes ? htmlspecialchars(substr($notes, 0, 80)) . (strlen($notes) > 80 ? '...' : '') : '';
+                                ?>
                                     <tr>
                                         <td data-label="Book Title" class="book-title"><?= htmlspecialchars($hist['book_title']) ?></td>
                                         <td data-label="Status"><?= ucfirst(str_replace('_', ' ', $hist['status'])) ?></td>
                                         <td data-label="Updated At"><?= $hist['updated_at'] ? date('F j, Y g:i A', strtotime($hist['updated_at'])) : '—' ?></td>
+                                        <td data-label="Admin Notes" class="admin-notes" title="<?= htmlspecialchars($notes ?? '') ?>">
+                                            <?= $notesDisplay ?: '—' ?>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+
+                        <!-- Pagination Controls -->
+                        <?php if ($total_pages > 1): ?>
+                            <div class="pagination">
+                                <?php if ($page > 1): ?>
+                                    <a href="?page=<?= $page - 1 ?>">&laquo; Previous</a>
+                                <?php endif; ?>
+
+                                <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                                    <?php if ($i == $page): ?>
+                                        <span class="current"><?= $i ?></span>
+                                    <?php else: ?>
+                                        <a href="?page=<?= $i ?>"><?= $i ?></a>
+                                    <?php endif; ?>
+                                <?php endfor; ?>
+
+                                <?php if ($page < $total_pages): ?>
+                                    <a href="?page=<?= $page + 1 ?>">Next &raquo;</a>
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </div>
             </div>
-
             <?php include '../components/footer.php'; ?>
         </main>
     </div>
@@ -421,7 +500,6 @@ if ($stmt_history) {
                 }
             });
         }
-
         <?php if ($return_success): ?>
             Swal.fire({
                 title: 'Return Requested!',
@@ -431,7 +509,6 @@ if ($stmt_history) {
                 timer: 3200
             });
         <?php endif; ?>
-
         <?php if ($return_error): ?>
             Swal.fire({
                 title: 'Error',

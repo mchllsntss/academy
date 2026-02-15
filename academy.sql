@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Feb 04, 2026 at 04:32 PM
+-- Generation Time: Feb 15, 2026 at 02:10 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -37,6 +37,7 @@ CREATE TABLE `books` (
   `copyright_year` int(11) NOT NULL,
   `isbn` varchar(30) DEFAULT NULL,
   `quantity` int(11) NOT NULL DEFAULT 1,
+  `cover_image` varchar(255) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -44,11 +45,18 @@ CREATE TABLE `books` (
 -- Dumping data for table `books`
 --
 
-INSERT INTO `books` (`id`, `call_number`, `title`, `shelf_location`, `author`, `category`, `copyright_year`, `isbn`, `quantity`, `created_at`) VALUES
-(2, '3', 'Career Pathways in TLE', 'TLE/HELE', 'Rolando V. Cristobal', 'Applied Science', 2015, '640C86c', 1, '2026-01-27 10:56:49'),
-(3, '50', 'Kamalayang Panlipunan', 'TLE/HELE', 'Neil Alvin Nicerio', 'Geography and History', 2013, '9786214054022', 1, '2026-01-27 10:58:59'),
-(4, '56', 'Skills for a Lifetime in TLE', 'TLE/HELE', 'Virginia Esmilla Sercado', 'Literature', 2025, '978971655441', 4, '2026-01-27 11:03:45'),
-(6, '900-999', 'Sanayang Aklat Para sa Noli Me Tangere', NULL, 'sfds', 'Literature', 1900, '8657647476', 22, '2026-01-30 03:36:33');
+INSERT INTO `books` (`id`, `call_number`, `title`, `shelf_location`, `author`, `category`, `copyright_year`, `isbn`, `quantity`, `cover_image`, `created_at`) VALUES
+(2, '3', 'Career Pathways in TLE', 'TLE/HELE', 'Rolando V. Cristobal', 'Applied Science', 2015, '640C86c', 1, '../uploads/books/book_2_1770861022.jpg', '2026-01-27 10:56:49'),
+(3, '50', 'Kamalayang Panlipunan', 'TLE/HELE', 'Neil Alvin Nicerio', 'Geography and History', 2013, '9786214054022', 1, NULL, '2026-01-27 10:58:59'),
+(4, '56', 'Skills for a Lifetime in TLE', 'TLE/HELE', 'Virginia Esmilla Sercado', 'Literature', 2025, '978971655441', 4, NULL, '2026-01-27 11:03:45'),
+(6, '900-999', 'Sanayang Aklat Para sa Noli Me Tangere', NULL, 'sfds', 'Literature', 1900, '8657647476', 13, NULL, '2026-01-30 03:36:33'),
+(7, '1', '1', '1', '1', 'Philosophy', 2000, '1', 111, '../uploads/books/book_new_1770860816.jpg', '2026-02-12 01:46:56'),
+(8, '12', '12', '12', '12', 'Religion', 2000, '12', 5, '../uploads/books/book_new_1770870989.gif', '2026-02-12 04:36:29'),
+(9, '600', 'Iure consequatur ea', 'Voluptatem quia qui', 'Rerum dolor et minim', 'Philosophy', 1993, 'Aut repudiandae ulla', 223, '', '2026-02-12 04:39:52'),
+(10, '333', 'Rem non vitae animi', 'Deserunt placeat et', 'Enim molestias est c', 'Religion', 1975, 'Ipsum non aut exped', 911, '', '2026-02-12 04:39:55'),
+(11, '686', 'Enim et omnis fugiat', 'Aliquam excepturi mo', 'Vel aut laboriosam', 'Literature', 2000, 'Totam laudantium do', 248, '', '2026-02-12 04:39:59'),
+(12, '349', 'Labore dolor occaeca', 'Laborum esse nostru', 'Praesentium ullam in', 'Generalities', 2003, 'Eum sed quis animi', 975, '', '2026-02-12 04:40:02'),
+(13, '169', 'Quae ea rem sit offi', 'Fugiat dignissimos d', 'Sed lorem ratione ve', 'Arts and Recreation', 2005, 'Praesentium voluptat', 323, '', '2026-02-12 04:40:07');
 
 -- --------------------------------------------------------
 
@@ -94,6 +102,7 @@ CREATE TABLE `book_requests` (
   `status` enum('pending','approved','rejected','borrowed','return_pending','returned') DEFAULT 'pending',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `admin_notes` text DEFAULT NULL,
   `return_date` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -101,16 +110,20 @@ CREATE TABLE `book_requests` (
 -- Dumping data for table `book_requests`
 --
 
-INSERT INTO `book_requests` (`id`, `student_id`, `book_id`, `request_type`, `request_date`, `status`, `created_at`, `updated_at`, `return_date`) VALUES
-(1, 1, 3, 'reserve', '2026-01-27 11:32:00', 'pending', '2026-01-27 11:32:00', '2026-01-27 11:32:00', NULL),
-(2, 1, 3, 'reserve', '2026-01-27 11:32:03', 'approved', '2026-01-27 11:32:03', '2026-01-30 03:20:39', NULL),
-(3, 5, 3, 'borrow', '2026-01-27 15:48:14', 'returned', '2026-01-27 15:48:14', '2026-01-28 18:52:20', NULL),
-(4, 5, 3, 'borrow', '2026-01-28 16:41:39', 'returned', '2026-01-28 16:41:39', '2026-01-29 08:17:36', NULL),
-(5, 5, 4, 'borrow', '2026-01-28 17:43:17', 'pending', '2026-01-28 17:43:17', '2026-01-28 17:43:17', NULL),
-(6, 3, 4, 'borrow', '2026-01-28 17:58:13', 'approved', '2026-01-28 17:58:13', '2026-01-30 03:37:54', NULL),
-(7, 3, 4, 'borrow', '2026-01-28 18:03:28', 'rejected', '2026-01-28 18:03:28', '2026-01-30 03:37:49', NULL),
-(8, 5, 6, 'reserve', '2026-01-30 03:40:13', 'approved', '2026-01-30 03:40:13', '2026-01-30 03:43:22', NULL),
-(9, 5, 4, 'borrow', '2026-01-30 03:42:44', 'approved', '2026-01-30 03:42:44', '2026-01-30 03:43:20', NULL);
+INSERT INTO `book_requests` (`id`, `student_id`, `book_id`, `request_type`, `request_date`, `status`, `created_at`, `updated_at`, `admin_notes`, `return_date`) VALUES
+(10, 11, 6, 'borrow', '2026-02-12 00:43:45', 'returned', '2026-02-12 00:43:45', '2026-02-12 02:24:53', 'alr', '2026-02-19 00:00:00'),
+(11, 14, 6, 'borrow', '2026-02-12 00:52:10', 'returned', '2026-02-12 00:52:10', '2026-02-12 00:53:04', NULL, '2026-02-19 00:00:00'),
+(17, 14, 6, 'borrow', '2026-02-12 01:08:06', 'returned', '2026-02-12 01:08:06', '2026-02-12 01:08:29', NULL, '2026-02-19 00:00:00'),
+(23, 14, 7, 'borrow', '2026-02-12 01:52:27', 'returned', '2026-02-12 01:52:27', '2026-02-12 02:20:14', 'd', '2026-02-19 00:00:00'),
+(24, 14, 7, 'borrow', '2026-02-12 02:05:39', 'returned', '2026-02-12 02:05:39', '2026-02-12 02:05:55', NULL, '2026-02-19 00:00:00'),
+(25, 9, 6, 'borrow', '2026-02-12 02:24:20', 'returned', '2026-02-12 02:24:20', '2026-02-12 02:34:59', 'ok', '2026-03-14 00:00:00'),
+(26, 14, 7, 'borrow', '2026-02-12 02:26:05', 'returned', '2026-02-12 02:26:05', '2026-02-12 02:45:18', '', '2026-02-19 00:00:00'),
+(27, 9, 7, 'borrow', '2026-02-12 02:35:25', 'returned', '2026-02-12 02:35:25', '2026-02-12 02:35:33', '', '2026-03-14 00:00:00'),
+(28, 10, 7, 'borrow', '2026-02-12 02:36:00', 'returned', '2026-02-12 02:36:00', '2026-02-12 02:36:07', '', '2026-03-14 00:00:00'),
+(29, 9, 2, 'borrow', '2026-02-12 02:36:24', 'returned', '2026-02-12 02:36:24', '2026-02-12 02:48:07', '', '2026-03-14 00:00:00'),
+(30, 9, 3, 'borrow', '2026-02-12 02:47:03', 'returned', '2026-02-12 02:47:03', '2026-02-12 02:48:18', '', '2026-03-14 00:00:00'),
+(31, 14, 7, 'borrow', '2026-02-12 03:41:26', 'returned', '2026-02-12 03:41:26', '2026-02-12 03:41:47', '', '2026-02-19 00:00:00'),
+(32, 16, 11, 'borrow', '2026-02-15 13:07:10', 'approved', '2026-02-15 13:07:10', '2026-02-15 13:07:10', NULL, '2026-03-17 00:00:00');
 
 -- --------------------------------------------------------
 
@@ -162,7 +175,9 @@ CREATE TABLE `non_faculty` (
 --
 
 INSERT INTO `non_faculty` (`id`, `user_id`, `employee_id`, `first_name`, `last_name`, `middle_initial`, `department`, `profile_image`, `status`, `created_at`) VALUES
-(1, 9, '43455', 'non', 'faculty', 'm', 'IT', 'uploads/members/non-faculty_69835e54e16df.jpg', 'active', '2026-02-04 14:57:25');
+(1, 9, '43455', 'non', 'faculty', 'm', 'IT', 'uploads/members/non-faculty_69835e54e16df.jpg', 'active', '2026-02-04 14:57:25'),
+(2, 13, '1234', 'Sodeha', 'Hadi', 'D', 'Library', 'uploads/members/non-faculty_698d2022edd61.jpg', 'active', '2026-02-12 00:34:43'),
+(3, 16, '66-666', 'Casca', 'Berserk', 'N', 'Eclipse', 'uploads/members/non-faculty_698d5690de0b9.gif', 'active', '2026-02-12 04:26:56');
 
 -- --------------------------------------------------------
 
@@ -212,7 +227,9 @@ CREATE TABLE `students` (
 INSERT INTO `students` (`id`, `user_id`, `student_id`, `first_name`, `last_name`, `middle_initial`, `profile_image`, `join_date`, `status`, `created_at`, `updated_at`) VALUES
 (1, 3, '2025-12314', 'Michaella', 'Santos', 'S', NULL, '2026-01-27', 'active', '2026-01-27 11:46:47', '2026-01-30 03:21:01'),
 (2, 5, '2025-12354', 'Joshua ', 'Jabinal', 'M', 'uploads/students/stud_6978aa37d2654.jpg', '2026-01-27', 'active', '2026-01-27 12:06:15', '2026-01-30 03:21:18'),
-(5, 11, '0896768', 'lanie', 'santos', 's', 'uploads/members/faculty_69836226bbe52.jpg', '2026-02-04', 'active', '2026-02-04 15:13:42', '2026-02-04 15:13:42');
+(5, 11, '0896768', 'lanie', 'santos', 's', 'uploads/members/faculty_69836226bbe52.jpg', '2026-02-04', 'active', '2026-02-04 15:13:42', '2026-02-04 15:13:42'),
+(7, 14, '2025-58154', 'Punpun', 'Onodera', 'D', 'uploads/members/student_698d24300626f.jpg', '2026-02-12', 'active', '2026-02-12 00:52:00', '2026-02-12 00:52:00'),
+(8, 15, '2025-58153', 'Lexus', 'Monte', 'F', 'uploads/members/student_698d5636a7479.jpg', '2026-02-12', 'active', '2026-02-12 04:25:26', '2026-02-12 04:25:26');
 
 -- --------------------------------------------------------
 
@@ -238,13 +255,15 @@ CREATE TABLE `users` (
 
 INSERT INTO `users` (`id`, `username`, `email`, `password_hash`, `first_name`, `last_name`, `phone`, `profile_image`, `profile_id`) VALUES
 (1, 'admin', 'admin@gmail.com', '$2y$10$5xKmcOOTqEztpzDnFP7BC.c6O1tZ9P2n9yngnhiot2juHL56c0V9e', NULL, NULL, NULL, NULL, 1),
-(2, 'student ', 'student@gmail.com', '$2a$12$Yuyt.sWbyege5Flw0STI7uzDGGK456bojHgrLkOehrDxdKSKDAyQ2', NULL, NULL, NULL, NULL, 2),
-(3, 'sigelang', '', '$2y$10$HToXGEfBWKiRIKTVcsnxw.n4l/gLh6wUhFuogG2IPMjmMJHM0MOg2', 'gege', 'gege', NULL, NULL, NULL),
-(5, 'naoya', 'kz@gmail.com', '$2y$10$4bYOFLOvVaLbVLA6szK9ZOFp5NQ0LdqaCrqL9JWdRMilK23tjqf.y', 'Naobito', 'Naoya', NULL, 'uploads/students/stud_6978aa37d2654.jpg', NULL),
-(7, 'faculty', 'faculty@gmail.com', '$2y$10$E/ExSaHEpMhq81FQoLIh4uM7mVlzbiLe1nkfwxwH33Q.JnQRGtX8C', 'faculty', NULL, NULL, NULL, NULL),
-(9, 'nonfaculty', 'nonfaculty@gmail.com', '$2y$10$fA2WmCyT3Kn1ypcrE9lT2OZMk9pHKkbw5JEPohfCrdKggiNxXxnua', 'non', 'faculty', '09516325287', 'uploads/members/non-faculty_69835e54e16df.jpg', NULL),
-(10, 'sisa', 'ssasdasd@gmail.com', '$2y$10$RbaPrNzfp2UkdzwJ6W1bVOz.1syS0r.6F1w/WGLKPkJuqd.bEx0li', 's', 's', '09766564542', 'uploads/members/faculty_69835fc398796.jpg', NULL),
-(11, 'laniesantos', 'laniesantos@gmail.com', '$2y$10$CAg.TGHD9GXjElVdn3LinOhWzAZmcpxNov1J3I6sCVA8diqc5l1D.', 'lanie', 'santos', '0998657978', 'uploads/members/faculty_69836226bbe52.jpg', NULL);
+(3, 'sigelang', '', '$2y$10$HToXGEfBWKiRIKTVcsnxw.n4l/gLh6wUhFuogG2IPMjmMJHM0MOg2', 'gege', 'gege', NULL, NULL, 2),
+(5, 'naoya', 'kz@gmail.com', '$2y$10$4bYOFLOvVaLbVLA6szK9ZOFp5NQ0LdqaCrqL9JWdRMilK23tjqf.y', 'Naobito', 'Naoya', NULL, 'uploads/students/stud_6978aa37d2654.jpg', 2),
+(9, 'nonfaculty', 'nonfaculty@gmail.com', '$2y$10$fA2WmCyT3Kn1ypcrE9lT2OZMk9pHKkbw5JEPohfCrdKggiNxXxnua', 'non', 'faculty', '09516325287', 'uploads/members/non-faculty_69835e54e16df.jpg', 4),
+(10, 'sisa', 'ssasdasd@gmail.com', '$2y$10$RbaPrNzfp2UkdzwJ6W1bVOz.1syS0r.6F1w/WGLKPkJuqd.bEx0li', 's', 's', '09766564542', 'uploads/members/faculty_69835fc398796.jpg', 3),
+(11, 'laniesantos', 'laniesantos@gmail.com', '$2y$10$CAg.TGHD9GXjElVdn3LinOhWzAZmcpxNov1J3I6sCVA8diqc5l1D.', 'lanie', 'santos', '0998657978', 'uploads/members/faculty_69836226bbe52.jpg', 2),
+(13, 'sodeha', 'asd@yahoo.com', '$2y$10$9rOWvv/lGMUC62bUzbcxWOLpIk4zUXvV0g8qXfJVHr1jS/A5wegjK', 'Sodeha', 'Hadi', '09658475444', 'uploads/members/non-faculty_698d2022edd61.jpg', 4),
+(14, 'punpun', 'punpun@gmail.com', '$2y$10$pt63bZ2hbW/ZlNmOmRaj0OLqVxoARxR5M.EltSCGw.K4lbsx1uHz.', 'Punpun', 'Onodera', '09659547221', 'uploads/members/student_698d24300626f.jpg', 2),
+(15, 'lexus', 'lexus@gmail.com', '$2y$10$NhUSIWHiO5E0ahHlBL4eU.G7ztNFsa6A/RayFeMTupMnUF8I9ZRKe', 'Lexus', 'Monte', '09056548444', 'uploads/members/student_698d5636a7479.jpg', 2),
+(16, 'casca', 'casca@gmail.com', '$2y$10$tsEDk45tuxipScUpin8u2e364pjNzwROnL6GvWUEe.yMdTPUuUssy', 'Casca', 'Berserk', '09666666666', 'uploads/members/non-faculty_698d5690de0b9.gif', 4);
 
 --
 -- Indexes for dumped tables
@@ -320,7 +339,7 @@ ALTER TABLE `users`
 -- AUTO_INCREMENT for table `books`
 --
 ALTER TABLE `books`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `books_requests`
@@ -332,7 +351,7 @@ ALTER TABLE `books_requests`
 -- AUTO_INCREMENT for table `book_requests`
 --
 ALTER TABLE `book_requests`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=33;
 
 --
 -- AUTO_INCREMENT for table `faculty`
@@ -344,7 +363,7 @@ ALTER TABLE `faculty`
 -- AUTO_INCREMENT for table `non_faculty`
 --
 ALTER TABLE `non_faculty`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
 
 --
 -- AUTO_INCREMENT for table `profile`
@@ -356,13 +375,13 @@ ALTER TABLE `profile`
 -- AUTO_INCREMENT for table `students`
 --
 ALTER TABLE `students`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
 
 --
 -- Constraints for dumped tables

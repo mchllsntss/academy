@@ -1,5 +1,5 @@
 <?php
-// members.php - Combined Member Management System
+// members.php - Combined Member Management System with Pagination (5 per page)
 // Database connection
 if (!isset($conn)) {
     include '../connection/dbconnection.php';
@@ -11,7 +11,8 @@ class MemberController {
     private $message = '';
     private $errors = [];
     private $member_type = 'student';
-
+    private $items_per_page = 5; // Set to 5 items per page
+    
     public function __construct($conn) {
         $this->conn = $conn;
         
@@ -19,7 +20,7 @@ class MemberController {
             mkdir($this->upload_dir, 0755, true);
         }
     }
-
+    
     public function handleRequest() {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (isset($_POST['delete_member'])) {
@@ -38,22 +39,25 @@ class MemberController {
             }
         }
         
-        return $this->getAllMembers();
+        $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+        if ($page < 1) $page = 1;
+        
+        return $this->getAllMembersPaginated($page);
     }
-
+    
     private function addMember() {
-        $first_name     = trim($_POST['first_name'] ?? '');
-        $last_name      = trim($_POST['last_name'] ?? '');
-        $mi             = trim($_POST['middle_initial'] ?? '');
-        $id_number      = trim($_POST['id_number'] ?? $_POST['student_id'] ?? '');
-        $username       = trim($_POST['username'] ?? '');
-        $email          = trim($_POST['email'] ?? '');
-        $phone          = trim($_POST['phone'] ?? '');
-        $department     = trim($_POST['department'] ?? '');
-        $password       = $_POST['password'] ?? '';
-        $confirm_pass   = $_POST['confirm_password'] ?? '';
-        $profile_image  = null;
-
+        $first_name = trim($_POST['first_name'] ?? '');
+        $last_name = trim($_POST['last_name'] ?? '');
+        $mi = trim($_POST['middle_initial'] ?? '');
+        $id_number = trim($_POST['id_number'] ?? $_POST['student_id'] ?? '');
+        $username = trim($_POST['username'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $phone = trim($_POST['phone'] ?? '');
+        $department = trim($_POST['department'] ?? '');
+        $password = $_POST['password'] ?? '';
+        $confirm_pass = $_POST['confirm_password'] ?? '';
+        $profile_image = null;
+        
         $this->validateInput($first_name, $last_name, $id_number, $username, $email, $phone, $password, $confirm_pass);
         
         if (empty($this->errors)) {
@@ -63,38 +67,38 @@ class MemberController {
         if (empty($this->errors)) {
             $this->checkUsernameExists($username);
         }
-
+        
         if (empty($this->errors)) {
             $this->checkIdNumberExists($id_number, $this->member_type);
         }
-
+        
         if (empty($this->errors) && !empty($_FILES['profile_image']['name'])) {
             $profile_image = $this->handleFileUpload();
         }
-
+        
         if (empty($this->errors)) {
             $this->insertMember($first_name, $last_name, $mi, $id_number, $username, $email, $phone, $department, $password, $profile_image);
         } else {
             $this->message = implode("<br>", $this->errors);
         }
     }
-
+    
     private function validateInput($first_name, $last_name, $id_number, $username, $email, $phone, $password, $confirm_pass) {
-        if (empty($first_name))      $this->errors[] = "First Name is required.";
-        if (empty($last_name))       $this->errors[] = "Last Name is required.";
-        if (empty($id_number))       $this->errors[] = "ID Number is required.";
-        if (empty($username))        $this->errors[] = "Username is required.";
+        if (empty($first_name)) $this->errors[] = "First Name is required.";
+        if (empty($last_name)) $this->errors[] = "Last Name is required.";
+        if (empty($id_number)) $this->errors[] = "ID Number is required.";
+        if (empty($username)) $this->errors[] = "Username is required.";
         if (strlen($username) < 3 || strlen($username) > 20) $this->errors[] = "Username must be 3-20 characters.";
-        if (empty($email))           $this->errors[] = "Email is required.";
+        if (empty($email)) $this->errors[] = "Email is required.";
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) $this->errors[] = "Invalid email format.";
         if (!empty($phone) && !preg_match('/^[0-9\s\-\+\(\)]{7,15}$/', $phone)) {
             $this->errors[] = "Invalid phone number format.";
         }
-        if (empty($password))        $this->errors[] = "Password is required.";
+        if (empty($password)) $this->errors[] = "Password is required.";
         if ($password !== $confirm_pass) $this->errors[] = "Passwords do not match.";
-        if (strlen($password) < 8)   $this->errors[] = "Password must be at least 8 characters.";
+        if (strlen($password) < 8) $this->errors[] = "Password must be at least 8 characters.";
     }
-
+    
     private function checkEmailExists($email) {
         $check_email = $this->conn->prepare("SELECT id FROM users WHERE email = ?");
         $check_email->bind_param("s", $email);
@@ -104,7 +108,7 @@ class MemberController {
         }
         $check_email->close();
     }
-
+    
     private function checkUsernameExists($username) {
         $check_user = $this->conn->prepare("SELECT id FROM users WHERE username = ?");
         $check_user->bind_param("s", $username);
@@ -114,7 +118,7 @@ class MemberController {
         }
         $check_user->close();
     }
-
+    
     private function checkIdNumberExists($id_number, $member_type) {
         $table = '';
         $id_field = '';
@@ -144,26 +148,27 @@ class MemberController {
             $check_id->close();
         }
     }
-
+    
     private function handleFileUpload() {
         $file_name = $_FILES['profile_image']['name'];
-        $file_tmp  = $_FILES['profile_image']['tmp_name'];
+        $file_tmp = $_FILES['profile_image']['tmp_name'];
         $file_size = $_FILES['profile_image']['size'];
-        $file_ext  = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
-
+        $file_ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
         $allowed = ['jpg', 'jpeg', 'png', 'gif'];
+        
         if (!in_array($file_ext, $allowed)) {
             $this->errors[] = "Only JPG, JPEG, PNG & GIF files are allowed.";
             return null;
         }
+        
         if ($file_size > 5242880) {
             $this->errors[] = "Image size must not exceed 5MB.";
             return null;
         }
-
+        
         $new_file_name = strtolower($this->member_type) . '_' . uniqid() . '.' . $file_ext;
         $destination = $this->upload_dir . $new_file_name;
-
+        
         if (move_uploaded_file($file_tmp, $destination)) {
             return 'uploads/members/' . $new_file_name;
         } else {
@@ -171,7 +176,7 @@ class MemberController {
             return null;
         }
     }
-
+    
     private function deleteMember() {
         $member_id = intval($_POST['member_id'] ?? 0);
         
@@ -179,7 +184,7 @@ class MemberController {
             $this->message = "Invalid member ID.";
             return;
         }
-
+        
         $checkMember = $this->conn->prepare("SELECT user_id FROM students WHERE id = ?");
         $checkMember->bind_param("i", $member_id);
         $checkMember->execute();
@@ -194,20 +199,19 @@ class MemberController {
         $member = $result->fetch_assoc();
         $user_id = $member['user_id'];
         $checkMember->close();
-
+        
         $this->conn->begin_transaction();
-
         try {
             $delStudent = $this->conn->prepare("DELETE FROM students WHERE id = ?");
             $delStudent->bind_param("i", $member_id);
             $delStudent->execute();
             $delStudent->close();
-
+            
             $delUser = $this->conn->prepare("DELETE FROM users WHERE id = ?");
             $delUser->bind_param("i", $user_id);
             $delUser->execute();
             $delUser->close();
-
+            
             $this->conn->commit();
             $this->message = "Member deleted successfully.";
         } catch (Exception $e) {
@@ -215,7 +219,7 @@ class MemberController {
             $this->message = "Error deleting member: " . $e->getMessage();
         }
     }
-
+    
     private function updateMember() {
         $member_id = intval($_POST['member_id'] ?? 0);
         $first_name = trim($_POST['first_name'] ?? '');
@@ -227,27 +231,27 @@ class MemberController {
         $password = $_POST['password'] ?? '';
         $confirm_pass = $_POST['confirm_password'] ?? '';
         $profile_image = null;
-
+        
         if ($member_id <= 0) {
             $this->message = "Invalid member ID.";
             return;
         }
-
+        
         $checkStmt = $this->conn->prepare("SELECT user_id FROM students WHERE id = ?");
         $checkStmt->bind_param("i", $member_id);
         $checkStmt->execute();
         $result = $checkStmt->get_result();
-
+        
         if ($result->num_rows === 0) {
             $this->message = "Member not found.";
             $checkStmt->close();
             return;
         }
-
+        
         $student = $result->fetch_assoc();
         $user_id = $student['user_id'];
         $checkStmt->close();
-
+        
         if (empty($first_name)) $this->errors[] = "First Name is required.";
         if (empty($last_name)) $this->errors[] = "Last Name is required.";
         if (empty($id_number)) $this->errors[] = "Student ID is required.";
@@ -256,63 +260,62 @@ class MemberController {
         if (!empty($phone) && !preg_match('/^[0-9\s\-\+\(\)]{7,15}$/', $phone)) {
             $this->errors[] = "Invalid phone number format.";
         }
-
+        
         if (!empty($password)) {
             if ($password !== $confirm_pass) $this->errors[] = "Passwords do not match.";
             if (strlen($password) < 8) $this->errors[] = "Password must be at least 8 characters.";
         }
-
+        
         if (empty($this->errors) && !empty($_FILES['profile_image']['name'])) {
             $profile_image = $this->handleFileUpload();
         }
-
+        
         if (empty($this->errors)) {
             $this->conn->begin_transaction();
-
             try {
                 if (!empty($password)) {
                     $password_hash = password_hash($password, PASSWORD_DEFAULT);
                     $updateUser = $this->conn->prepare("
-                        UPDATE users 
+                        UPDATE users
                         SET email = ?, phone = ?, password_hash = ?, first_name = ?, last_name = ?
                         WHERE id = ?
                     ");
                     $updateUser->bind_param("sssssi", $email, $phone, $password_hash, $first_name, $last_name, $user_id);
                 } else {
                     $updateUser = $this->conn->prepare("
-                        UPDATE users 
+                        UPDATE users
                         SET email = ?, phone = ?, first_name = ?, last_name = ?
                         WHERE id = ?
                     ");
                     $updateUser->bind_param("ssssi", $email, $phone, $first_name, $last_name, $user_id);
                 }
-
+                
                 if (!$updateUser->execute()) {
                     throw new Exception("Error updating user: " . $updateUser->error);
                 }
                 $updateUser->close();
-
+                
                 if ($profile_image) {
                     $updateStudent = $this->conn->prepare("
-                        UPDATE students 
+                        UPDATE students
                         SET student_id = ?, first_name = ?, last_name = ?, middle_initial = ?, profile_image = ?
                         WHERE id = ?
                     ");
                     $updateStudent->bind_param("sssssi", $id_number, $first_name, $last_name, $mi, $profile_image, $member_id);
                 } else {
                     $updateStudent = $this->conn->prepare("
-                        UPDATE students 
+                        UPDATE students
                         SET student_id = ?, first_name = ?, last_name = ?, middle_initial = ?
                         WHERE id = ?
                     ");
                     $updateStudent->bind_param("ssssi", $id_number, $first_name, $last_name, $mi, $member_id);
                 }
-
+                
                 if (!$updateStudent->execute()) {
                     throw new Exception("Error updating student: " . $updateStudent->error);
                 }
                 $updateStudent->close();
-
+                
                 $this->conn->commit();
                 $this->message = "Member updated successfully.";
             } catch (Exception $e) {
@@ -323,20 +326,28 @@ class MemberController {
             $this->message = implode("<br>", $this->errors);
         }
     }
-
+    
     private function insertMember($first_name, $last_name, $mi, $id_number, $username, $email, $phone, $department, $password, $profile_image) {
         $password_hash = password_hash($password, PASSWORD_DEFAULT);
-
+        
+        $profile_id = 2;
+        if ($this->member_type === 'faculty') {
+            $profile_id = 3;
+        } elseif ($this->member_type === 'non-faculty') {
+            $profile_id = 4;
+        }
+        
         $stmt_user = $this->conn->prepare("
-            INSERT INTO users 
-            (username, email, first_name, last_name, phone, password_hash, profile_image)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO users
+            (username, email, first_name, last_name, phone, password_hash, profile_image, profile_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ");
-        $stmt_user->bind_param("sssssss", $username, $email, $first_name, $last_name, $phone, $password_hash, $profile_image);
-
+        
+        $stmt_user->bind_param("sssssssi", $username, $email, $first_name, $last_name, $phone, $password_hash, $profile_image, $profile_id);
+        
         if ($stmt_user->execute()) {
             $user_id = $this->conn->insert_id;
-
+            
             switch ($this->member_type) {
                 case 'student':
                     $this->insertStudent($user_id, $id_number, $first_name, $last_name, $mi, $profile_image);
@@ -349,20 +360,23 @@ class MemberController {
                     break;
             }
             
+            $type_name = ucfirst(str_replace('-', ' ', $this->member_type));
+            $this->message = "Success! New {$type_name} account created.";
+            
         } else {
             $this->message = "Error creating user account: " . $stmt_user->error;
         }
         $stmt_user->close();
     }
-
+    
     private function insertStudent($user_id, $student_id, $first_name, $last_name, $mi, $profile_image) {
         $stmt = $this->conn->prepare("
-            INSERT INTO students 
+            INSERT INTO students
             (user_id, student_id, first_name, last_name, middle_initial, profile_image, join_date, status)
             VALUES (?, ?, ?, ?, ?, ?, CURDATE(), 'active')
         ");
         $stmt->bind_param("isssss", $user_id, $student_id, $first_name, $last_name, $mi, $profile_image);
-
+        
         if ($stmt->execute()) {
             $this->message = "Success! New student account created.";
         } else {
@@ -370,15 +384,15 @@ class MemberController {
         }
         $stmt->close();
     }
-
+    
     private function insertFaculty($user_id, $faculty_id, $first_name, $last_name, $mi, $department, $profile_image) {
         $stmt = $this->conn->prepare("
-            INSERT INTO faculty 
+            INSERT INTO faculty
             (user_id, faculty_id, first_name, last_name, middle_initial, department, profile_image, status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NOW())
         ");
         $stmt->bind_param("issssss", $user_id, $faculty_id, $first_name, $last_name, $mi, $department, $profile_image);
-
+        
         if ($stmt->execute()) {
             $this->message = "Success! New faculty account created.";
         } else {
@@ -386,15 +400,15 @@ class MemberController {
         }
         $stmt->close();
     }
-
+    
     private function insertNonFaculty($user_id, $employee_id, $first_name, $last_name, $mi, $department, $profile_image) {
         $stmt = $this->conn->prepare("
-            INSERT INTO non_faculty 
+            INSERT INTO non_faculty
             (user_id, employee_id, first_name, last_name, middle_initial, department, profile_image, status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NOW())
         ");
         $stmt->bind_param("issssss", $user_id, $employee_id, $first_name, $last_name, $mi, $department, $profile_image);
-
+        
         if ($stmt->execute()) {
             $this->message = "Success! New non-faculty staff account created.";
         } else {
@@ -402,92 +416,120 @@ class MemberController {
         }
         $stmt->close();
     }
-
-    private function getAllMembers() {
-        $members = [];
+    
+    private function getAllMembersPaginated($page = 1) {
+        $offset = ($page - 1) * $this->items_per_page;
         
-        $query = "
-            SELECT 
-                s.id,
-                s.student_id as member_id,
-                s.first_name,
-                s.last_name,
-                s.middle_initial,
-                s.profile_image,
-                s.join_date as member_since,
-                s.status,
-                s.created_at,
-                u.username,
-                u.email,
-                u.phone,
-                'student' as member_type,
-                NULL as department
-            FROM students s
-            LEFT JOIN users u ON s.user_id = u.id
-            
-            UNION ALL
-            
-            SELECT 
-                f.id,
-                f.faculty_id as member_id,
-                f.first_name,
-                f.last_name,
-                f.middle_initial,
-                f.profile_image,
-                f.created_at as member_since,
-                f.status,
-                f.created_at,
-                u.username,
-                u.email,
-                u.phone,
-                'faculty' as member_type,
-                f.department
-            FROM faculty f
-            LEFT JOIN users u ON f.user_id = u.id
-            
-            UNION ALL
-            
-            SELECT 
-                nf.id,
-                nf.employee_id as member_id,
-                nf.first_name,
-                nf.last_name,
-                nf.middle_initial,
-                nf.profile_image,
-                nf.created_at as member_since,
-                nf.status,
-                nf.created_at,
-                u.username,
-                u.email,
-                u.phone,
-                'non-faculty' as member_type,
-                nf.department
-            FROM non_faculty nf
-            LEFT JOIN users u ON nf.user_id = u.id
-            
-            ORDER BY last_name ASC
+        $count_query = "
+            SELECT COUNT(*) as total FROM (
+                SELECT id FROM students
+                UNION ALL
+                SELECT id FROM faculty
+                UNION ALL
+                SELECT id FROM non_faculty
+            ) as combined
         ";
         
-        $result = $this->conn->query($query);
+        $count_result = $this->conn->query($count_query);
+        $total_members = $count_result->fetch_assoc()['total'];
+        $total_pages = ceil($total_members / $this->items_per_page);
         
+        $query = "
+            SELECT * FROM (
+                SELECT
+                    s.id,
+                    s.student_id as member_id,
+                    s.first_name,
+                    s.last_name,
+                    s.middle_initial,
+                    s.profile_image,
+                    s.join_date as member_since,
+                    s.status,
+                    s.created_at,
+                    u.username,
+                    u.email,
+                    u.phone,
+                    'student' as member_type,
+                    NULL as department,
+                    s.join_date as sort_date
+                FROM students s
+                LEFT JOIN users u ON s.user_id = u.id
+                
+                UNION ALL
+                
+                SELECT
+                    f.id,
+                    f.faculty_id as member_id,
+                    f.first_name,
+                    f.last_name,
+                    f.middle_initial,
+                    f.profile_image,
+                    f.created_at as member_since,
+                    f.status,
+                    f.created_at,
+                    u.username,
+                    u.email,
+                    u.phone,
+                    'faculty' as member_type,
+                    f.department,
+                    f.created_at as sort_date
+                FROM faculty f
+                LEFT JOIN users u ON f.user_id = u.id
+                
+                UNION ALL
+                
+                SELECT
+                    nf.id,
+                    nf.employee_id as member_id,
+                    nf.first_name,
+                    nf.last_name,
+                    nf.middle_initial,
+                    nf.profile_image,
+                    nf.created_at as member_since,
+                    nf.status,
+                    nf.created_at,
+                    u.username,
+                    u.email,
+                    u.phone,
+                    'non-faculty' as member_type,
+                    nf.department,
+                    nf.created_at as sort_date
+                FROM non_faculty nf
+                LEFT JOIN users u ON nf.user_id = u.id
+            ) as combined
+            ORDER BY last_name ASC
+            LIMIT ? OFFSET ?
+        ";
+        
+        $stmt = $this->conn->prepare($query);
+        $stmt->bind_param("ii", $this->items_per_page, $offset);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        $members = [];
         if ($result) {
             $members = $result->fetch_all(MYSQLI_ASSOC);
         } else {
             error_log("Database error: " . $this->conn->error);
         }
+        $stmt->close();
         
         return [
             'members' => $members,
+            'total_members' => $total_members,
+            'total_pages' => $total_pages,
+            'current_page' => $page,
+            'items_per_page' => $this->items_per_page,
             'message' => $this->message
         ];
     }
-
+    
     public function getMemberById($member_id) {
         $member = null;
         $member_id = intval($member_id);
         
         $query = "
-            SELECT 
+            SELECT
                 s.id,
                 s.student_id as member_id,
                 s.first_name,
@@ -516,7 +558,7 @@ class MemberController {
         
         return $member;
     }
-
+    
     public function getMessage() {
         return $this->message;
     }
@@ -526,7 +568,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'get_member') {
     $memberController = new MemberController($conn);
     $member_id = intval($_POST['member_id'] ?? 0);
     $member = $memberController->getMemberById($member_id);
-    
     header('Content-Type: application/json');
     if ($member) {
         echo json_encode(['success' => true, 'member' => $member]);
@@ -539,6 +580,10 @@ if (isset($_POST['action']) && $_POST['action'] === 'get_member') {
 $memberController = new MemberController($conn);
 $data = $memberController->handleRequest();
 $members = $data['members'];
+$total_members = $data['total_members'];
+$total_pages = $data['total_pages'];
+$current_page = $data['current_page'];
+$items_per_page = $data['items_per_page'];
 $message = $data['message'];
 ?>
 
@@ -549,8 +594,8 @@ $message = $data['message'];
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Member Management | Library System</title>
     <style>
-        * { 
-            font-family: 'Inter', sans-serif; 
+        * {
+            font-family: 'Inter', sans-serif;
             margin: 0;
             padding: 0;
             box-sizing: border-box;
@@ -592,7 +637,7 @@ $message = $data['message'];
             justify-content: center;
         }
         
-        .btn-primary:hover { 
+        .btn-primary:hover {
             background-color: var(--primary-green-dark);
             transform: translateY(-1px);
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -605,19 +650,19 @@ $message = $data['message'];
             border-left: 5px solid;
             font-size: 0.875rem;
         }
-        .message.success { 
-            background:#e8f5e9; 
-            border-color:#2e7d32;
+        .message.success {
+            background: #e8f5e9;
+            border-color: #2e7d32;
             color: #1b5e20;
         }
-        .message.error   { 
-            background:#ffebee; 
-            border-color:#c62828;
+        .message.error {
+            background: #ffebee;
+            border-color: #c62828;
             color: #b71c1c;
         }
         
-        .table-row:hover { 
-            background-color: var(--bg-green-light); 
+        .table-row:hover {
+            background-color: var(--bg-green-light);
         }
         
         .status-active {
@@ -693,20 +738,20 @@ $message = $data['message'];
         }
         
         @media print {
-            body * { 
-                visibility: hidden; 
+            body * {
+                visibility: hidden;
             }
-            .print-section, .print-section * { 
-                visibility: visible; 
+            .print-section, .print-section * {
+                visibility: visible;
             }
-            .print-section { 
-                position: absolute; 
-                left: 0; 
-                top: 0; 
-                width: 100%; 
+            .print-section {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
             }
-            .no-print { 
-                display: none !important; 
+            .no-print {
+                display: none !important;
             }
         }
         
@@ -1190,13 +1235,63 @@ $message = $data['message'];
         ::-webkit-scrollbar-thumb:hover {
             background: var(--gray-400);
         }
+        
+        /* Pagination Styles */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 2rem;
+            gap: 0.5rem;
+        }
+        
+        .pagination-item {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 40px;
+            height: 40px;
+            padding: 0 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--gray-700);
+            background-color: white;
+            border: 1px solid var(--gray-300);
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+        
+        .pagination-item:hover {
+            background-color: var(--bg-green-light);
+            border-color: var(--primary-green);
+            color: var(--primary-green-dark);
+        }
+        
+        .pagination-item.active {
+            background-color: var(--primary-green);
+            border-color: var(--primary-green);
+            color: white;
+        }
+        
+        .pagination-item.disabled {
+            opacity: 0.5;
+            pointer-events: none;
+            background-color: var(--gray-100);
+        }
+        
+        .showing-info {
+            color: var(--gray-600);
+            font-size: 0.875rem;
+            margin-bottom: 1rem;
+        }
     </style>
 </head>
 <body class="bg-gray-50">
     <?php include '../components/header.php'; ?>
     <?php include '../components/sidebar.php'; ?>
-
-    <div class="min-h-screen flex flex-col">        
+    
+    <div class="min-h-screen flex flex-col">
         <div id="mainContent" class="main-content-expanded p-6 transition-all duration-300 overflow-y-auto flex-1">
             <div class="max-w-7xl mx-auto">
                 <!-- Page Header -->
@@ -1229,7 +1324,8 @@ $message = $data['message'];
                                     </div>
                                 </div>
                             </div>
-                            <!-- Updated Add New Member Button with Dropdown -->
+                            
+                            <!-- Add New Member Button with Dropdown -->
                             <div class="relative no-print">
                                 <button id="addMemberDropdownBtn" class="btn-primary px-6 py-3 rounded-lg font-medium flex items-center">
                                     <i class="fas fa-user-plus mr-2"></i> Add New Member
@@ -1254,13 +1350,13 @@ $message = $data['message'];
                         </div>
                     </div>
                 </div>
-
+                
                 <?php if (isset($message)): ?>
                     <div class="message <?= strpos($message, 'Success') !== false ? 'success' : 'error' ?>">
                         <?= $message ?>
                     </div>
                 <?php endif; ?>
-
+                
                 <!-- Search and Filter Bar -->
                 <div class="bg-white rounded-xl shadow-sm p-6 mb-6 no-print">
                     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1288,14 +1384,19 @@ $message = $data['message'];
                             <button class="border border-gray-300 rounded-lg px-4 py-3 hover:bg-gray-50 flex items-center">
                                 <i class="fas fa-filter mr-2 text-gray-600"></i> Filter
                             </button>
-                             
+                            
                             <button class="border border-gray-300 rounded-lg px-4 py-3 hover:bg-gray-50 flex items-center">
                                 <i class="fas fa-download mr-2 text-gray-600"></i> Export
                             </button>
                         </div>
                     </div>
                 </div>
-
+                
+                <!-- Showing Info -->
+                <div class="showing-info no-print">
+                    Showing <?= count($members) ?> of <?= $total_members ?> members (Page <?= $current_page ?> of <?= $total_pages ?>)
+                </div>
+                
                 <!-- Printable Members Table -->
                 <div id="printableTable" class="print-section">
                     <div class="hidden print:block mb-6">
@@ -1405,15 +1506,67 @@ $message = $data['message'];
                         </div>
                     </div>
                 </div>
+                
+                <!-- Pagination -->
+                <?php if ($total_pages > 1): ?>
+                <div class="pagination no-print">
+                    <!-- Previous Page -->
+                    <?php if ($current_page > 1): ?>
+                        <a href="?page=<?= $current_page - 1 ?>" class="pagination-item">
+                            <i class="fas fa-chevron-left"></i>
+                        </a>
+                    <?php else: ?>
+                        <span class="pagination-item disabled">
+                            <i class="fas fa-chevron-left"></i>
+                        </span>
+                    <?php endif; ?>
+                    
+                    <!-- Page Numbers -->
+                    <?php
+                    $start_page = max(1, $current_page - 2);
+                    $end_page = min($total_pages, $start_page + 4);
+                    
+                    if ($start_page > 1) {
+                        echo '<a href="?page=1" class="pagination-item">1</a>';
+                        if ($start_page > 2) {
+                            echo '<span class="pagination-item disabled">...</span>';
+                        }
+                    }
+                    
+                    for ($i = $start_page; $i <= $end_page; $i++): ?>
+                        <a href="?page=<?= $i ?>" class="pagination-item <?= $i == $current_page ? 'active' : '' ?>">
+                            <?= $i ?>
+                        </a>
+                    <?php endfor; ?>
+                    
+                    <?php if ($end_page < $total_pages): ?>
+                        <?php if ($end_page < $total_pages - 1): ?>
+                            <span class="pagination-item disabled">...</span>
+                        <?php endif; ?>
+                        <a href="?page=<?= $total_pages ?>" class="pagination-item"><?= $total_pages ?></a>
+                    <?php endif; ?>
+                    
+                    <!-- Next Page -->
+                    <?php if ($current_page < $total_pages): ?>
+                        <a href="?page=<?= $current_page + 1 ?>" class="pagination-item">
+                            <i class="fas fa-chevron-right"></i>
+                        </a>
+                    <?php else: ?>
+                        <span class="pagination-item disabled">
+                            <i class="fas fa-chevron-right"></i>
+                        </span>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
-
+    
     <!-- Add Member Modal -->
     <div id="addMemberModal" class="fixed inset-0 z-50 hidden overflow-y-auto no-print">
         <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
             <div class="fixed inset-0 transition-opacity modal-backdrop" aria-hidden="true"></div>
-           
+            
             <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
                 <div class="bg-green-600 px-6 py-4">
                     <div class="flex justify-between items-center">
@@ -1425,12 +1578,12 @@ $message = $data['message'];
                         </button>
                     </div>
                 </div>
-               
+                
                 <div class="bg-white px-6 py-6">
                     <form id="addMemberForm" method="POST" enctype="multipart/form-data">
                         <input type="hidden" name="add_member" value="1">
                         <input type="hidden" name="member_type" id="memberType" value="student">
-
+                        
                         <!-- Profile Picture Upload -->
                         <div class="mb-6 text-center">
                             <label class="block text-sm font-medium text-gray-700 mb-3">Profile Picture (Optional)</label>
@@ -1443,9 +1596,8 @@ $message = $data['message'];
                             </div>
                             <input type="file" name="profile_image" id="profileImage" accept="image/*" class="mt-3 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
                         </div>
-
+                        
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <!-- All form fields -->
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">First Name *</label>
                                 <div class="relative">
@@ -1455,7 +1607,7 @@ $message = $data['message'];
                                     <input type="text" name="first_name" required class="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" placeholder="Enter first name">
                                 </div>
                             </div>
-
+                            
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Last Name *</label>
                                 <div class="relative">
@@ -1465,7 +1617,7 @@ $message = $data['message'];
                                     <input type="text" name="last_name" required class="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" placeholder="Enter last name">
                                 </div>
                             </div>
-
+                            
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Middle Initial</label>
                                 <div class="relative">
@@ -1475,7 +1627,7 @@ $message = $data['message'];
                                     <input type="text" name="middle_initial" maxlength="1" class="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" placeholder="M.I.">
                                 </div>
                             </div>
-
+                            
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2" id="idLabel">ID Number *</label>
                                 <div class="relative">
@@ -1486,7 +1638,7 @@ $message = $data['message'];
                                 </div>
                                 <p class="text-xs text-gray-500 mt-1" id="idHelp">Student ID number</p>
                             </div>
-
+                            
                             <div class="md:col-span-2">
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Department</label>
                                 <div class="relative">
@@ -1497,7 +1649,7 @@ $message = $data['message'];
                                 </div>
                                 <p class="text-xs text-gray-500 mt-1">For faculty/non-faculty only</p>
                             </div>
-
+                            
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Email Address *</label>
                                 <div class="relative">
@@ -1507,7 +1659,7 @@ $message = $data['message'];
                                     <input type="email" name="email" required class="pl-10 pr-4 py-3 w-full border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" placeholder="member@example.com">
                                 </div>
                             </div>
-
+                            
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
                                 <div class="relative">
@@ -1518,7 +1670,7 @@ $message = $data['message'];
                                 </div>
                                 <p class="text-xs text-gray-500 mt-1">Optional. Format: 09xxxxxxxxx or +63xxxxxxxxx</p>
                             </div>
-
+                            
                             <div class="md:col-span-2">
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Username *</label>
                                 <div class="relative">
@@ -1529,7 +1681,7 @@ $message = $data['message'];
                                 </div>
                                 <p class="text-xs text-gray-500 mt-1">Username must be unique and 3-20 characters long</p>
                             </div>
-
+                            
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Password *</label>
                                 <div class="relative">
@@ -1544,7 +1696,7 @@ $message = $data['message'];
                                     </div>
                                 </div>
                             </div>
-
+                            
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Confirm Password *</label>
                                 <div class="relative">
@@ -1561,7 +1713,7 @@ $message = $data['message'];
                                 <p class="text-xs text-gray-500 mt-1">Passwords must match</p>
                             </div>
                         </div>
-
+                        
                         <div class="mt-6 flex justify-end space-x-3">
                             <button type="button" id="cancelModal" class="px-6 py-3 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50">
                                 Cancel
@@ -1575,7 +1727,7 @@ $message = $data['message'];
             </div>
         </div>
     </div>
-
+    
     <!-- Delete Confirmation Modal -->
     <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto no-print">
         <div class="flex items-center justify-center min-h-screen">
@@ -1603,7 +1755,7 @@ $message = $data['message'];
             </div>
         </div>
     </div>
-
+    
     <!-- Success Toast -->
     <div id="successToast" class="fixed top-4 right-4 z-50 hidden no-print">
         <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 rounded-lg shadow-lg max-w-sm">
@@ -1618,7 +1770,7 @@ $message = $data['message'];
             </div>
         </div>
     </div>
-
+    
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const modal = document.getElementById('addMemberModal');
@@ -1640,7 +1792,7 @@ $message = $data['message'];
             // Handle Add Member Dropdown
             const addMemberDropdownBtn = document.getElementById('addMemberDropdownBtn');
             const addMemberDropdown = document.getElementById('addMemberDropdown');
-
+            
             // Image preview
             imageInput.addEventListener('change', function(e) {
                 const file = e.target.files[0];
@@ -1657,7 +1809,7 @@ $message = $data['message'];
                     placeholder.style.display = 'block';
                 }
             });
-
+            
             // Toggle password visibility
             document.querySelectorAll('.toggle-password').forEach(button => {
                 button.addEventListener('click', function() {
@@ -1672,20 +1824,20 @@ $message = $data['message'];
                     }
                 });
             });
-
+            
             // Toggle dropdown
             addMemberDropdownBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 addMemberDropdown.classList.toggle('hidden');
             });
-
+            
             // Close dropdown when clicking outside
             document.addEventListener('click', (e) => {
                 if (!addMemberDropdownBtn.contains(e.target) && !addMemberDropdown.contains(e.target)) {
                     addMemberDropdown.classList.add('hidden');
                 }
             });
-
+            
             // Handle dropdown option clicks
             document.querySelectorAll('.add-member-option').forEach(option => {
                 option.addEventListener('click', (e) => {
@@ -1706,9 +1858,8 @@ $message = $data['message'];
                     document.body.classList.add('overflow-hidden');
                 });
             });
-
+            
             function updateModalForMemberType(memberType) {
-                // Update modal title
                 let title = '';
                 let icon = '';
                 
@@ -1745,7 +1896,7 @@ $message = $data['message'];
                 
                 modalTitle.innerHTML = `<i class="fas fa-${icon} mr-2"></i>${title}`;
             }
-
+            
             // Close modal
             const closeModal = () => {
                 modal.classList.add('hidden');
@@ -1753,31 +1904,34 @@ $message = $data['message'];
                 form.reset();
                 imagePreview.classList.add('hidden');
                 placeholder.style.display = 'block';
-                // Reset to default (student)
                 updateModalForMemberType('student');
                 memberTypeInput.value = 'student';
                 
-                // Reset form title and button to add mode
                 document.querySelector('#modalTitle').innerHTML = '<i class="fas fa-user-plus mr-2"></i> Add New Member';
                 const submitBtn = document.querySelector('#addMemberForm button[type="submit"]');
                 submitBtn.innerHTML = '<i class="fas fa-save mr-2"></i> Create Account';
                 
-                // Remove member_id if it exists
                 const memberIdInput = form.querySelector('input[name="member_id"]');
                 if (memberIdInput) {
                     memberIdInput.remove();
                 }
+                
+                const usernameField = document.querySelector('input[name="username"]');
+                if (usernameField) {
+                    usernameField.disabled = false;
+                    usernameField.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
             };
-
+            
             closeModalBtn.addEventListener('click', closeModal);
             cancelModalBtn.addEventListener('click', closeModal);
-
+            
             modal.addEventListener('click', (e) => {
                 if (e.target === modal || e.target.classList.contains('modal-backdrop')) {
                     closeModal();
                 }
             });
-
+            
             // Form submission validation
             form.addEventListener('submit', (e) => {
                 const password = document.getElementById('password').value;
@@ -1787,15 +1941,12 @@ $message = $data['message'];
                 const idNumber = document.getElementById('idNumber').value;
                 const memberIdInput = form.querySelector('input[name="member_id"]');
                 const isEditing = memberIdInput && memberIdInput.value;
-
-                // Clear previous errors
+                
                 document.querySelectorAll('.error-text').forEach(el => el.remove());
                 
                 let hasError = false;
-
-                // During editing, password is optional
+                
                 if (isEditing) {
-                    // If password is provided, validate it
                     if (password || confirmPassword) {
                         if (password !== confirmPassword) {
                             showError('confirmPassword', 'Passwords do not match!');
@@ -1807,7 +1958,6 @@ $message = $data['message'];
                         }
                     }
                 } else {
-                    // During adding, password is required
                     if (password !== confirmPassword) {
                         showError('confirmPassword', 'Passwords do not match!');
                         hasError = true;
@@ -1817,24 +1967,25 @@ $message = $data['message'];
                         hasError = true;
                     }
                 }
-
+                
                 if (!email.includes('@') || !email.includes('.')) {
                     showError('email', 'Please enter a valid email address!');
                     hasError = true;
                 }
+                
                 if (phone && !/^[0-9\s\-\+\(\)]{7,15}$/.test(phone)) {
                     showError('phone', 'Please enter a valid phone number!');
                     hasError = true;
                 }
+                
                 if (!idNumber.trim()) {
                     showError('idNumber', 'ID Number is required!');
                     hasError = true;
                 }
-
+                
                 if (hasError) {
                     e.preventDefault();
                 } else if (isEditing) {
-                    // Change form to use update instead of add
                     e.target.querySelector('input[name="add_member"]').value = '0';
                     const updateInput = document.createElement('input');
                     updateInput.type = 'hidden';
@@ -1843,7 +1994,7 @@ $message = $data['message'];
                     e.target.appendChild(updateInput);
                 }
             });
-
+            
             function showError(fieldId, message) {
                 const field = document.getElementById(fieldId);
                 const error = document.createElement('p');
@@ -1851,13 +2002,12 @@ $message = $data['message'];
                 error.textContent = message;
                 field.parentElement.appendChild(error);
             }
-
-            // Show success toast
+            
             <?php if (isset($message) && strpos($message, 'Success') !== false): ?>
                 successToast.classList.remove('hidden');
                 setTimeout(() => successToast.classList.add('hidden'), 4000);
             <?php endif; ?>
-
+            
             // Print button with dropdown
             const printBtn = document.getElementById('printBtn');
             const printDropdown = document.getElementById('printDropdown');
@@ -1879,7 +2029,6 @@ $message = $data['message'];
                     const printType = e.currentTarget.getAttribute('data-type');
                     printDropdown.classList.add('hidden');
                     
-                    // Filter table rows based on type
                     const rows = document.querySelectorAll('#membersTableBody tr');
                     rows.forEach(row => {
                         row.style.display = 'table-row';
@@ -1894,10 +2043,8 @@ $message = $data['message'];
                         });
                     }
                     
-                    // Print after a short delay to allow DOM update
                     setTimeout(() => {
                         window.print();
-                        // Show all rows again after print
                         setTimeout(() => {
                             rows.forEach(row => {
                                 row.style.display = 'table-row';
@@ -1924,7 +2071,6 @@ $message = $data['message'];
                     const memberId = this.getAttribute('data-id');
                     const memberType = this.getAttribute('data-member-type');
                     
-                    // Fetch member data via AJAX
                     fetch('', {
                         method: 'POST',
                         headers: {
@@ -1937,23 +2083,21 @@ $message = $data['message'];
                         if (data.success) {
                             const member = data.member;
                             
-                            // Populate form with member data
                             document.querySelector('input[name="first_name"]').value = member.first_name || '';
                             document.querySelector('input[name="last_name"]').value = member.last_name || '';
                             document.querySelector('input[name="middle_initial"]').value = member.middle_initial || '';
                             document.querySelector('input[name="id_number"]').value = member.member_id || '';
                             document.querySelector('input[name="email"]').value = member.email || '';
                             document.querySelector('input[name="phone"]').value = member.phone || '';
+                            
                             const usernameField = document.querySelector('input[name="username"]');
                             usernameField.value = member.username || '';
-                            usernameField.disabled = true; // Disable username in edit mode
+                            usernameField.disabled = true;
                             usernameField.classList.add('opacity-50', 'cursor-not-allowed');
                             
-                            // Clear password fields for editing
                             document.getElementById('password').value = '';
                             document.getElementById('confirmPassword').value = '';
                             
-                            // Store member ID in form
                             const form = document.getElementById('addMemberForm');
                             let memberIdInput = form.querySelector('input[name="member_id"]');
                             if (!memberIdInput) {
@@ -1964,15 +2108,12 @@ $message = $data['message'];
                             }
                             memberIdInput.value = memberId;
                             
-                            // Change form to edit mode
                             const submitBtn = document.querySelector('#addMemberForm button[type="submit"]');
                             submitBtn.innerHTML = '<i class="fas fa-save mr-2"></i> Update Member';
                             
-                            // Set member type and update modal
                             document.getElementById('memberType').value = memberType;
                             updateModalForMemberType(memberType);
                             
-                            // Show modal
                             modal.classList.remove('hidden');
                             document.body.classList.add('overflow-hidden');
                         } else {
@@ -2004,29 +2145,23 @@ $message = $data['message'];
                 const memberTypeFilter = document.getElementById('memberTypeFilter').value;
                 
                 tableRows.forEach(row => {
-                    // Skip the "no members" row
                     if (row.cells.length <= 1) return;
                     
                     let rowText = '';
-                    // Collect text from all relevant columns (skip photo and actions columns)
                     for (let i = 1; i < row.cells.length - 1; i++) {
                         rowText += row.cells[i].textContent.toLowerCase() + ' ';
                     }
                     
-                    // Check status filter
-                    const statusCell = row.cells[8]; // Status is at index 8
+                    const statusCell = row.cells[8];
                     const rowStatus = statusCell ? statusCell.textContent.toLowerCase().trim() : '';
                     const statusMatch = !statusFilter || rowStatus === statusFilter;
                     
-                    // Check member type filter
-                    const memberTypeCell = row.cells[1]; // Member Type is at index 1
+                    const memberTypeCell = row.cells[1];
                     const rowMemberType = memberTypeCell ? memberTypeCell.textContent.toLowerCase().trim() : '';
                     const memberTypeMatch = !memberTypeFilter || rowMemberType === memberTypeFilter;
                     
-                    // Check search term match
                     const searchMatch = !searchTerm || rowText.includes(searchTerm);
                     
-                    // Show/hide row based on all filters
                     if (searchMatch && statusMatch && memberTypeMatch) {
                         row.style.display = '';
                     } else {
@@ -2034,7 +2169,7 @@ $message = $data['message'];
                     }
                 });
             });
-
+            
             // Status and member type filter functionality
             document.getElementById('statusFilter').addEventListener('change', function() {
                 document.getElementById('searchMembers').dispatchEvent(new Event('input'));
@@ -2043,7 +2178,7 @@ $message = $data['message'];
             document.getElementById('memberTypeFilter').addEventListener('change', function() {
                 document.getElementById('searchMembers').dispatchEvent(new Event('input'));
             });
-
+            
             // Debounce function for better performance
             function debounce(func, wait) {
                 let timeout;
@@ -2056,17 +2191,13 @@ $message = $data['message'];
                     timeout = setTimeout(later, wait);
                 };
             }
-
-            // Apply debounce to search
-            document.getElementById('searchMembers').addEventListener('input', debounce(function(e) {
-                // The search logic is handled in the event listener above
-            }, 300));
-
+            
+            document.getElementById('searchMembers').addEventListener('input', debounce(function(e) {}, 300));
+            
             // Add clear search button functionality
             const searchInput = document.getElementById('searchMembers');
             const searchContainer = searchInput.parentElement;
             
-            // Create clear button
             const clearBtn = document.createElement('button');
             clearBtn.type = 'button';
             clearBtn.className = 'absolute inset-y-0 right-0 pr-3 flex items-center hidden';

@@ -1,5 +1,5 @@
 <?php
-// student_request_book.php - Request a Book + History of Requests
+// student_request_book.php - Request a Book + History of Requests with Pagination
 session_start();
 require_once '../connection/dbconnection.php';
 
@@ -8,14 +8,13 @@ if (!isset($_SESSION['user_id']) || !is_numeric($_SESSION['user_id'])) {
     header("Location: ../pages/login.php?error=Please log in first");
     exit;
 }
-
 $user_id = (int)$_SESSION['user_id'];
 
 // Fetch student name for personalized message
 $student_name = "Student";
 $stmt_name = $conn->prepare("
-    SELECT first_name, last_name 
-    FROM students 
+    SELECT first_name, last_name
+    FROM students
     WHERE user_id = ?
     LIMIT 1
 ");
@@ -32,6 +31,8 @@ if ($stmt_name) {
 // Handle new request submission
 $success_message = '';
 $error_message = '';
+$requested_title = '';
+$requested_date = date('Y-m-d');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_request'])) {
     $book_title   = trim($_POST['bookTitle'] ?? '');
@@ -39,6 +40,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_request'])) {
     $isbn         = trim($_POST['bookISBN'] ?? '');
     $notes        = trim($_POST['additionalNotes'] ?? '');
     $request_date = $_POST['requestDate'] ?? date('Y-m-d');
+    $requested_title = $book_title;
+    $requested_date = $request_date;
 
     $errors = [];
     if (empty($book_title)) $errors[] = "Book title is required.";
@@ -46,12 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_request'])) {
 
     if (empty($errors)) {
         $stmt = $conn->prepare("
-            INSERT INTO books_requests 
+            INSERT INTO books_requests
             (student_id, book_title, author, isbn, notes, request_date, status)
             VALUES (?, ?, ?, ?, ?, ?, 'pending')
         ");
         $stmt->bind_param("isssss", $user_id, $book_title, $author, $isbn, $notes, $request_date);
-
         if ($stmt->execute()) {
             $success_message = "Your request for <strong>\"$book_title\"</strong> has been submitted successfully!";
         } else {
@@ -63,28 +65,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_request'])) {
     }
 }
 
-// Fetch history of requests for this student only
+// Pagination for Request History (5 items per page)
+$per_page = 5;
+$page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+$offset = ($page - 1) * $per_page;
+
+// Get total count
+$count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM books_requests WHERE student_id = ?");
+$count_stmt->bind_param("i", $user_id);
+$count_stmt->execute();
+$count_result = $count_stmt->get_result();
+$total_rows = $count_result->fetch_assoc()['total'];
+$count_stmt->close();
+
+$total_pages = $total_rows > 0 ? ceil($total_rows / $per_page) : 0;
+
+// Adjust page if out of bounds
+if ($page > $total_pages && $total_pages > 0) {
+    $page = $total_pages;
+    $offset = ($page - 1) * $per_page;
+}
+
+// Fetch history with pagination
 $requests = [];
 $stmt_history = $conn->prepare("
-    SELECT 
+    SELECT
         book_title,
         author,
         notes,
         request_date,
         status
-    FROM books_requests 
+    FROM books_requests
     WHERE student_id = ?
     ORDER BY request_date DESC
+    LIMIT ? OFFSET ?
 ");
 if ($stmt_history) {
-    $stmt_history->bind_param("i", $user_id);
+    $stmt_history->bind_param("iii", $user_id, $per_page, $offset);
     $stmt_history->execute();
     $result = $stmt_history->get_result();
     $requests = $result->fetch_all(MYSQLI_ASSOC);
     $stmt_history->close();
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -267,6 +290,32 @@ if ($stmt_history) {
             color: #c8e6c9;
             margin-bottom: 15px;
         }
+
+        /* Pagination Styles */
+        .pagination {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .pagination a, .pagination span {
+            display: inline-block;
+            padding: 10px 16px;
+            margin: 0 6px;
+            background-color: #4caf50;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.25s;
+        }
+        .pagination a:hover {
+            background-color: #388e3c;
+            transform: translateY(-2px);
+        }
+        .pagination .current {
+            background-color: #2e7d32;
+            cursor: default;
+        }
+
         @media (max-width: 992px) {
             .page-wrapper { flex-direction: column; }
             .sidebar { width: 100%; }
@@ -284,32 +333,18 @@ if ($stmt_history) {
         <aside class="sidebar">
             <?php include '../components/student_sidebar.php'; ?>
         </aside>
-
         <!-- Main Content -->
         <main class="main-content">
             <?php include '../components/header.php'; ?>
-
             <div class="container">
                 <div class="header-section">
                     <h1><i class="fas fa-book-medical"></i> Request a Book</h1>
                     <p>Can't find the book you're looking for? Request it here and our librarians will do their best to acquire it for our collection.</p>
                 </div>
 
+                <!-- Book Request Form -->
                 <div class="request-card">
                     <h2><i class="fas fa-file-alt"></i> Book Request Form</h2>
-
-                    <?php if ($success_message): ?>
-                        <div class="info-box" style="margin-bottom: 24px;">
-                            <?= $success_message ?>
-                        </div>
-                    <?php endif; ?>
-
-                    <?php if ($error_message): ?>
-                        <div class="info-box error" style="margin-bottom: 24px;">
-                            <?= $error_message ?>
-                        </div>
-                    <?php endif; ?>
-
                     <form id="bookRequestForm" method="POST">
                         <div class="form-group">
                             <label for="requestDate"><i class="fas fa-calendar-alt"></i> Request Date</label>
@@ -318,7 +353,6 @@ if ($stmt_history) {
                                 <div class="input-icon"><i class="far fa-calendar"></i></div>
                             </div>
                         </div>
-
                         <div class="form-group">
                             <label for="bookTitle"><i class="fas fa-book"></i> Book Title *</label>
                             <div class="input-with-icon">
@@ -326,7 +360,6 @@ if ($stmt_history) {
                                 <div class="input-icon"><i class="fas fa-book-open"></i></div>
                             </div>
                         </div>
-
                         <div class="form-group">
                             <label for="bookAuthor"><i class="fas fa-user-edit"></i> Author (Optional)</label>
                             <div class="input-with-icon">
@@ -334,7 +367,6 @@ if ($stmt_history) {
                                 <div class="input-icon"><i class="fas fa-pen-nib"></i></div>
                             </div>
                         </div>
-
                         <div class="form-group">
                             <label for="bookISBN"><i class="fas fa-barcode"></i> ISBN (Optional)</label>
                             <div class="input-with-icon">
@@ -342,22 +374,19 @@ if ($stmt_history) {
                                 <div class="input-icon"><i class="fas fa-hashtag"></i></div>
                             </div>
                         </div>
-
                         <div class="form-group">
                             <label for="additionalNotes"><i class="fas fa-sticky-note"></i> Additional Notes (Optional)</label>
                             <textarea id="additionalNotes" name="additionalNotes" class="form-input" rows="4" placeholder="Any additional information about the book request..."></textarea>
                         </div>
-
                         <button type="submit" name="submit_request" class="submit-btn">
                             <i class="fas fa-paper-plane"></i> Submit Book Request
                         </button>
                     </form>
                 </div>
 
-                <!-- History of Requested Books -->
+                <!-- History of Requested Books with Pagination -->
                 <div class="history-card">
                     <h2><i class="fas fa-history"></i> History of Your Book Requests</h2>
-
                     <?php if (empty($requests)): ?>
                         <div class="no-requests">
                             <i class="fas fa-inbox"></i><br>
@@ -384,7 +413,7 @@ if ($stmt_history) {
                                         <td>
                                             <?php
                                             $status = $req['status'] ?? 'pending';
-                                            $class = $status === 'pending' ? 'status-pending' : 
+                                            $class = $status === 'pending' ? 'status-pending' :
                                                      ($status === 'approved' ? 'status-approved' : 'status-rejected');
                                             ?>
                                             <span class="<?= $class ?>"><?= ucfirst($status) ?></span>
@@ -393,10 +422,30 @@ if ($stmt_history) {
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+
+                        <!-- Pagination Controls -->
+                        <?php if ($total_pages > 1): ?>
+                            <div class="pagination">
+                                <?php if ($page > 1): ?>
+                                    <a href="?page=<?= $page - 1 ?>">&laquo; Previous</a>
+                                <?php endif; ?>
+
+                                <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                                    <?php if ($i == $page): ?>
+                                        <span class="current"><?= $i ?></span>
+                                    <?php else: ?>
+                                        <a href="?page=<?= $i ?>"><?= $i ?></a>
+                                    <?php endif; ?>
+                                <?php endfor; ?>
+
+                                <?php if ($page < $total_pages): ?>
+                                    <a href="?page=<?= $page + 1 ?>">Next &raquo;</a>
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </div>
             </div>
-
             <?php include '../components/footer.php'; ?>
         </main>
     </div>
@@ -408,7 +457,6 @@ if ($stmt_history) {
             const dateInput = document.getElementById('requestDate');
             dateInput.value = today;
             dateInput.min = today;
-
             const maxDate = new Date();
             maxDate.setDate(maxDate.getDate() + 60);
             dateInput.max = maxDate.toISOString().split('T')[0];
@@ -421,13 +469,13 @@ if ($stmt_history) {
                             <i class="fas fa-check-circle"></i>
                         </div>
                         <p style="font-size: 1.2rem; color: #2e7d32; margin-bottom: 12px;">
-                            Thank you, <?= explode(' ', '<?= $student_name ?>')[0] ?>!
+                            Thank you, <?= explode(' ', htmlspecialchars($student_name))[0] ?>!
                         </p>
                         <p style="color: #555; margin-bottom: 8px;">
-                            <strong>"<?= htmlspecialchars(addslashes($_POST['bookTitle'] ?? '')) ?>"</strong> has been requested
+                            <strong>"<?= htmlspecialchars($requested_title) ?>"</strong> has been requested
                         </p>
                         <p style="color: #777; font-size: 0.95rem;">
-                            Date: <?= date('F j, Y', strtotime($request_date)) ?>
+                            Date: <?= date('F j, Y', strtotime($requested_date)) ?>
                         </p>
                     `,
                     icon: 'success',
@@ -436,8 +484,7 @@ if ($stmt_history) {
                     allowOutsideClick: true,
                     timer: 3500,
                     timerProgressBar: true,
-                    background: '#f9fdf9',
-                    customClass: { popup: 'swal-popup-green' }
+                    background: '#f9fdf9'
                 });
             <?php endif; ?>
 
