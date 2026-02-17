@@ -1,5 +1,5 @@
 <?php
-// student_borrowed_books.php - My Borrowed Books + History with Admin Notes + Pagination for History
+// student_borrowed_books.php - My Borrowed Books + History with Admin Notes + Fine + Pagination
 session_start();
 require_once '../connection/dbconnection.php';
 
@@ -8,7 +8,10 @@ if (!isset($_SESSION['user_id']) || !is_numeric($_SESSION['user_id'])) {
     header("Location: ../pages/login.php?error=Please log in first");
     exit;
 }
+
 $user_id = (int)$_SESSION['user_id'];
+
+define('FINE_PER_DAY', 5.00); // ₱5 per day overdue
 
 // Handle return request
 $return_success = false;
@@ -30,15 +33,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['return_book'])) {
     $stmt->close();
 }
 
-// Fetch currently borrowed books (including return_pending so student sees it until admin confirms)
+// Fetch currently borrowed books (including return_pending)
 $current_borrowed = [];
 $stmt_current = $conn->prepare("
     SELECT
         br.id AS request_id,
         b.title AS book_title,
         br.request_date AS borrowed_on,
-        DATE_ADD(br.request_date, INTERVAL 7 DAY) AS due_date,
-        br.status
+        br.return_date AS due_date,           -- using the actual return_date column
+        br.status,
+        br.fine                               -- if already saved (though usually 0 while pending)
     FROM book_requests br
     JOIN books b ON br.book_id = b.id
     WHERE br.student_id = ?
@@ -50,11 +54,30 @@ if ($stmt_current) {
     $stmt_current->bind_param("i", $user_id);
     $stmt_current->execute();
     $result_current = $stmt_current->get_result();
-    $current_borrowed = $result_current->fetch_all(MYSQLI_ASSOC);
+
+    while ($row = $result_current->fetch_assoc()) {
+        // Live calculation of overdue fine for display
+        $fine_display = 0;
+        if ($row['due_date'] && $row['status'] !== 'return_pending') {
+            $due = new DateTime($row['due_date']);
+            $today = new DateTime();
+            if ($today > $due) {
+                $days_late = $today->diff($due)->days;
+                $fine_display = $days_late * FINE_PER_DAY;
+            }
+        }
+        // If return_pending and admin already set fine → show the saved one
+        if ($row['status'] === 'return_pending' && $row['fine'] > 0) {
+            $fine_display = $row['fine'];
+        }
+
+        $row['fine_display'] = $fine_display;
+        $current_borrowed[] = $row;
+    }
     $stmt_current->close();
 }
 
-// Pagination for Borrowing History (5 items per page)
+// Pagination for Borrowing History
 $per_page = 5;
 $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
 $offset = ($page - 1) * $per_page;
@@ -68,21 +91,20 @@ $total_rows = $count_result->fetch_assoc()['total'];
 $count_stmt->close();
 
 $total_pages = $total_rows > 0 ? ceil($total_rows / $per_page) : 0;
-
-// Adjust page if out of bounds
 if ($page > $total_pages && $total_pages > 0) {
     $page = $total_pages;
     $offset = ($page - 1) * $per_page;
 }
 
-// Fetch history with pagination
+// Fetch history with pagination (now including fine)
 $history = [];
 $stmt_history = $conn->prepare("
     SELECT
         b.title AS book_title,
         br.status,
         br.updated_at,
-        br.admin_notes
+        br.admin_notes,
+        br.fine
     FROM book_requests br
     JOIN books b ON br.book_id = b.id
     WHERE br.student_id = ?
@@ -98,6 +120,7 @@ if ($stmt_history) {
     $stmt_history->close();
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -107,246 +130,53 @@ if ($stmt_history) {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        body {
-            background-color: #f5f7f0;
-            color: #333;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        .page-wrapper {
-            display: flex;
-            flex: 1;
-        }
-        .sidebar {
-            width: 250px;
-            background-color: #2e7d32;
-            color: white;
-            flex-shrink: 0;
-        }
-        .main-content {
-            flex: 1;
-            padding: 24px;
-            background: #f5f7f0;
-        }
-        .container {
-            max-width: 1100px;
-            margin: 0 auto;
-            width: 100%;
-        }
-        .header-section {
-            text-align: center;
-            margin-bottom: 40px;
-        }
-        .header-section h1 {
-            color: #2e7d32;
-            font-size: 2.4rem;
-            margin-bottom: 12px;
-            position: relative;
-            display: inline-block;
-            padding-bottom: 14px;
-        }
-        .header-section h1:after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 140px;
-            height: 4px;
-            background-color: #4caf50;
-            border-radius: 2px;
-        }
-        .borrowed-card {
-            background: white;
-            border-radius: 16px;
-            padding: 32px;
-            box-shadow: 0 8px 28px rgba(46, 125, 50, 0.14);
-            border-top: 5px solid #4caf50;
-            margin-bottom: 40px;
-        }
-        .borrowed-card h2 {
-            color: #2e7d32;
-            margin-bottom: 28px;
-            text-align: center;
-            font-size: 1.8rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-        }
-        .no-books {
-            text-align: center;
-            padding: 80px 20px;
-            color: #777;
-            font-size: 1.2rem;
-        }
-        .no-books i {
-            font-size: 4rem;
-            color: #c8e6c9;
-            margin-bottom: 20px;
-        }
-        .books-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0 12px;
-        }
-        .books-table th, .books-table td {
-            padding: 16px 20px;
-            text-align: left;
-            background: #fafefa;
-        }
-        .books-table th {
-            background: #2e7d32;
-            color: white;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.95rem;
-            letter-spacing: 0.5px;
-        }
-        .books-table tr {
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-            border-radius: 12px;
-            overflow: hidden;
-        }
-        .books-table td {
-            border-top: 1px solid #e0f2e9;
-            border-bottom: 1px solid #e0f2e9;
-        }
-        .books-table td:first-child {
-            border-left: 4px solid #4caf50;
-            border-top-left-radius: 12px;
-            border-bottom-left-radius: 12px;
-        }
-        .books-table td:last-child {
-            border-right: 4px solid #4caf50;
-            border-top-right-radius: 12px;
-            border-bottom-right-radius: 12px;
-        }
-        .status-on-time {
-            color: #2e7d32;
-            font-weight: 600;
-        }
-        .status-overdue {
-            color: #d32f2f;
-            font-weight: 600;
-        }
-        .status-return-pending {
-            color: #f59e0b;
-            font-weight: 600;
-        }
-        .return-btn {
-            background: #0288d1;
-            color: white;
-            border: none;
-            padding: 10px 18px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.25s;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .return-btn:hover {
-            background: #0277bd;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(2, 136, 209, 0.3);
-        }
-        .return-btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-        .history-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0 8px;
-        }
-        .history-table th, .history-table td {
-            padding: 14px 18px;
-            text-align: left;
-        }
-        .history-table th {
-            background: #2e7d32;
-            color: white;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.9rem;
-        }
-        .history-table tr {
-            background: #fafefa;
-            border-radius: 10px;
-        }
-        .history-table td {
-            border-top: 1px solid #e0f2e9;
-            border-bottom: 1px solid #e0f2e9;
-        }
-        .admin-notes {
-            max-width: 300px;
-            word-wrap: break-word;
-            font-size: 0.95em;
-            color: #555;
-        }
-        .admin-notes:empty::before {
-            content: '—';
-            color: #aaa;
-        }
+        * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',sans-serif; }
+        body { background:#f5f7f0; color:#333; min-height:100vh; display:flex; flex-direction:column; }
+        .page-wrapper { display:flex; flex:1; }
+        .sidebar { width:250px; background:#2e7d32; color:white; flex-shrink:0; }
+        .main-content { flex:1; padding:24px; background:#f5f7f0; }
+        .container { max-width:1100px; margin:0 auto; width:100%; }
+        .header-section { text-align:center; margin-bottom:40px; }
+        .header-section h1 { color:#2e7d32; font-size:2.4rem; margin-bottom:12px; position:relative; display:inline-block; padding-bottom:14px; }
+        .header-section h1:after { content:''; position:absolute; bottom:0; left:50%; transform:translateX(-50%); width:140px; height:4px; background:#4caf50; border-radius:2px; }
+        .borrowed-card { background:white; border-radius:16px; padding:32px; box-shadow:0 8px 28px rgba(46,125,50,0.14); border-top:5px solid #4caf50; margin-bottom:40px; }
+        .borrowed-card h2 { color:#2e7d32; margin-bottom:28px; text-align:center; font-size:1.8rem; display:flex; align-items:center; justify-content:center; gap:12px; }
+        .no-books { text-align:center; padding:80px 20px; color:#777; font-size:1.2rem; }
+        .no-books i { font-size:4rem; color:#c8e6c9; margin-bottom:20px; }
+        .books-table, .history-table { width:100%; border-collapse:separate; border-spacing:0 12px; }
+        .books-table th, .books-table td, .history-table th, .history-table td { padding:16px 20px; text-align:left; background:#fafefa; }
+        .books-table th, .history-table th { background:#2e7d32; color:white; font-weight:600; text-transform:uppercase; font-size:0.95rem; letter-spacing:0.5px; }
+        .books-table tr, .history-table tr { box-shadow:0 2px 10px rgba(0,0,0,0.08); border-radius:12px; overflow:hidden; }
+        .books-table td { border-top:1px solid #e0f2e9; border-bottom:1px solid #e0f2e9; }
+        .books-table td:first-child, .history-table td:first-child { border-left:4px solid #4caf50; border-top-left-radius:12px; border-bottom-left-radius:12px; }
+        .books-table td:last-child, .history-table td:last-child { border-right:4px solid #4caf50; border-top-right-radius:12px; border-bottom-right-radius:12px; }
+        .status-on-time    { color:#2e7d32; font-weight:600; }
+        .status-overdue    { color:#d32f2f; font-weight:600; }
+        .status-return-pending { color:#f59e0b; font-weight:600; }
+        .fine-amount       { font-weight:600; }
+        .fine-amount.zero  { color:#555; }
+        .fine-amount.positive { color:#c62828; }
+        .return-btn { background:#0288d1; color:white; border:none; padding:10px 18px; border-radius:8px; cursor:pointer; font-weight:600; transition:all 0.25s; display:flex; align-items:center; gap:8px; }
+        .return-btn:hover { background:#0277bd; transform:translateY(-2px); box-shadow:0 4px 12px rgba(2,136,209,0.3); }
+        .return-btn:disabled { background:#ccc; cursor:not-allowed; }
+        .pagination { text-align:center; margin:30px 0; }
+        .pagination a, .pagination span { display:inline-block; padding:10px 16px; margin:0 6px; background:#4caf50; color:white; text-decoration:none; border-radius:8px; font-weight:600; }
+        .pagination a:hover { background:#388e3c; transform:translateY(-2px); }
+        .pagination .current { background:#2e7d32; cursor:default; }
+        .admin-notes { max-width:300px; word-wrap:break-word; font-size:0.95em; color:#555; }
+        .admin-notes:empty::before { content:'—'; color:#aaa; }
 
-        /* Pagination Styles */
-        .pagination {
-            text-align: center;
-            margin: 30px 0;
-        }
-        .pagination a, .pagination span {
-            display: inline-block;
-            padding: 10px 16px;
-            margin: 0 6px;
-            background-color: #4caf50;
-            color: white;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
-            transition: all 0.25s;
-        }
-        .pagination a:hover {
-            background-color: #388e3c;
-            transform: translateY(-2px);
-        }
-        .pagination .current {
-            background-color: #2e7d32;
-            cursor: default;
-        }
-
-        @media (max-width: 992px) {
-            .page-wrapper { flex-direction: column; }
-            .sidebar { width: 100%; }
-            .main-content { padding: 20px 16px; }
-        }
-        @media (max-width: 768px) {
-            .header-section h1 { font-size: 2.1rem; }
-            .borrowed-card { padding: 28px 20px; }
-        }
-        @media (max-width: 600px) {
-            .books-table thead, .history-table thead { display: none; }
-            .books-table tr, .history-table tr { display: block; margin-bottom: 20px; border: 2px solid #ddd; border-radius: 12px; }
-            .books-table td, .history-table td { display: block; text-align: right; position: relative; padding-left: 50%; border: none; border-bottom: 1px solid #e0f2e9; }
+        @media (max-width:992px)  { .page-wrapper { flex-direction:column; } .sidebar { width:100%; } .main-content { padding:20px 16px; } }
+        @media (max-width:768px)  { .header-section h1 { font-size:2.1rem; } .borrowed-card { padding:28px 20px; } }
+        @media (max-width:600px) {
+            .books-table thead, .history-table thead { display:none; }
+            .books-table tr, .history-table tr { display:block; margin-bottom:20px; border:2px solid #ddd; border-radius:12px; }
+            .books-table td, .history-table td { display:block; text-align:right; position:relative; padding-left:50%; border:none; border-bottom:1px solid #e0f2e9; }
             .books-table td:before, .history-table td:before {
-                content: attr(data-label);
-                position: absolute;
-                left: 20px;
-                width: 45%;
-                font-weight: 600;
-                color: #2e7d32;
-                text-align: left;
+                content:attr(data-label); position:absolute; left:20px; width:45%; font-weight:600; color:#2e7d32; text-align:left;
             }
-            .books-table td:first-child, .history-table td:first-child { border-top: 4px solid #4caf50; border-radius: 12px 12px 0 0; }
-            .books-table td:last-child, .history-table td:last-child { border-bottom: 4px solid #4caf50; border-radius: 0 0 12px 12px; }
+            .books-table td:first-child, .history-table td:first-child { border-top:4px solid #4caf50; border-radius:12px 12px 0 0; }
+            .books-table td:last-child, .history-table td:last-child { border-bottom:4px solid #4caf50; border-radius:0 0 12px 12px; }
         }
     </style>
 </head>
@@ -356,9 +186,11 @@ if ($stmt_history) {
         <aside class="sidebar">
             <?php include '../components/student_sidebar.php'; ?>
         </aside>
+
         <!-- Main Content -->
         <main class="main-content">
             <?php include '../components/header.php'; ?>
+
             <div class="container">
                 <div class="header-section">
                     <h1><i class="fas fa-book-reader"></i> My Borrowed Books</h1>
@@ -368,6 +200,7 @@ if ($stmt_history) {
                 <!-- Currently Borrowed -->
                 <div class="borrowed-card">
                     <h2><i class="fas fa-hand-holding-book"></i> Currently Borrowed</h2>
+
                     <?php if (empty($current_borrowed)): ?>
                         <div class="no-books">
                             <i class="fas fa-book-open"></i><br>
@@ -382,24 +215,27 @@ if ($stmt_history) {
                                     <th>Borrowed On</th>
                                     <th>Due Date</th>
                                     <th>Status</th>
+                                    <th>Fine (₱)</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php foreach ($current_borrowed as $book):
-                                    $due_date = new DateTime($book['due_date']);
+                                    $due_date_obj = $book['due_date'] ? new DateTime($book['due_date']) : null;
                                     $today = new DateTime();
-                                    $overdue = $today > $due_date;
+                                    $overdue = $due_date_obj && $today > $due_date_obj;
                                     $status_text = $book['status'] === 'return_pending' ? 'Pending Return' : ($overdue ? 'Overdue' : 'On Time');
                                     $status_class = $book['status'] === 'return_pending' ? 'status-return-pending' : ($overdue ? 'status-overdue' : 'status-on-time');
+
+                                    $fine_class = $book['fine_display'] > 0 ? 'fine-amount positive' : 'fine-amount zero';
+                                    $fine_text  = $book['fine_display'] > 0 ? number_format($book['fine_display'], 2) : '—';
                                 ?>
                                     <tr>
                                         <td data-label="Book Title" class="book-title"><?= htmlspecialchars($book['book_title']) ?></td>
                                         <td data-label="Borrowed On"><?= date('F j, Y', strtotime($book['borrowed_on'])) ?></td>
-                                        <td data-label="Due Date"><?= date('F j, Y', strtotime($book['due_date'])) ?></td>
-                                        <td data-label="Status" class="<?= $status_class ?>">
-                                            <?= $status_text ?>
-                                        </td>
+                                        <td data-label="Due Date"><?= $book['due_date'] ? date('F j, Y', strtotime($book['due_date'])) : '—' ?></td>
+                                        <td data-label="Status" class="<?= $status_class ?>"><?= $status_text ?></td>
+                                        <td data-label="Fine" class="<?= $fine_class ?>"><strong><?= $fine_text ?></strong></td>
                                         <td data-label="Action">
                                             <?php if ($book['status'] !== 'return_pending'): ?>
                                                 <form method="POST" style="display:inline;" id="returnForm_<?= $book['request_id'] ?>">
@@ -420,9 +256,10 @@ if ($stmt_history) {
                     <?php endif; ?>
                 </div>
 
-                <!-- Borrowing History with Pagination -->
+                <!-- Borrowing History -->
                 <div class="borrowed-card">
                     <h2><i class="fas fa-history"></i> Borrowing History</h2>
+
                     <?php if (empty($history)): ?>
                         <div class="no-books">
                             <i class="fas fa-history"></i><br>
@@ -435,33 +272,35 @@ if ($stmt_history) {
                                     <th>Book Title</th>
                                     <th>Status</th>
                                     <th>Updated At</th>
+                                    <th>Fine (₱)</th>
                                     <th>Admin Notes</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php foreach ($history as $hist):
+                                    $fine_txt = $hist['fine'] > 0 ? number_format($hist['fine'], 2) : '—';
+                                    $fine_class = $hist['fine'] > 0 ? 'fine-amount positive' : 'fine-amount zero';
                                     $notes = $hist['admin_notes'];
-                                    $notesDisplay = $notes ? htmlspecialchars(substr($notes, 0, 80)) . (strlen($notes) > 80 ? '...' : '') : '';
+                                    $notesDisplay = $notes ? htmlspecialchars(substr($notes, 0, 80)) . (strlen($notes)>80?'...':'') : '—';
                                 ?>
                                     <tr>
                                         <td data-label="Book Title" class="book-title"><?= htmlspecialchars($hist['book_title']) ?></td>
                                         <td data-label="Status"><?= ucfirst(str_replace('_', ' ', $hist['status'])) ?></td>
                                         <td data-label="Updated At"><?= $hist['updated_at'] ? date('F j, Y g:i A', strtotime($hist['updated_at'])) : '—' ?></td>
+                                        <td data-label="Fine" class="<?= $fine_class ?>"><strong><?= $fine_txt ?></strong></td>
                                         <td data-label="Admin Notes" class="admin-notes" title="<?= htmlspecialchars($notes ?? '') ?>">
-                                            <?= $notesDisplay ?: '—' ?>
+                                            <?= $notesDisplay ?>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
 
-                        <!-- Pagination Controls -->
                         <?php if ($total_pages > 1): ?>
                             <div class="pagination">
                                 <?php if ($page > 1): ?>
                                     <a href="?page=<?= $page - 1 ?>">&laquo; Previous</a>
                                 <?php endif; ?>
-
                                 <?php for ($i = 1; $i <= $total_pages; $i++): ?>
                                     <?php if ($i == $page): ?>
                                         <span class="current"><?= $i ?></span>
@@ -469,7 +308,6 @@ if ($stmt_history) {
                                         <a href="?page=<?= $i ?>"><?= $i ?></a>
                                     <?php endif; ?>
                                 <?php endfor; ?>
-
                                 <?php if ($page < $total_pages): ?>
                                     <a href="?page=<?= $page + 1 ?>">Next &raquo;</a>
                                 <?php endif; ?>
@@ -478,6 +316,7 @@ if ($stmt_history) {
                     <?php endif; ?>
                 </div>
             </div>
+
             <?php include '../components/footer.php'; ?>
         </main>
     </div>
@@ -500,6 +339,7 @@ if ($stmt_history) {
                 }
             });
         }
+
         <?php if ($return_success): ?>
             Swal.fire({
                 title: 'Return Requested!',
@@ -509,6 +349,7 @@ if ($stmt_history) {
                 timer: 3200
             });
         <?php endif; ?>
+
         <?php if ($return_error): ?>
             Swal.fire({
                 title: 'Error',
