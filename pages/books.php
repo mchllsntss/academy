@@ -93,6 +93,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Handle borrow request (Walk-in)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['borrow_book'])) {
+    $book_id = (int)$_POST['book_id'];
+    $user_id = (int)$_POST['user_id'];
+    $request_type = 'borrow'; // Fixed value
+
+    // Check if book is available
+    $book_check = $conn->query("SELECT quantity FROM books WHERE id = $book_id")->fetch_assoc();
+    
+    if ($book_check && $book_check['quantity'] > 0) {
+        // Get user's profile to determine return days
+        $profile_check = $conn->query("SELECT profile_id FROM users WHERE id = $user_id")->fetch_assoc();
+        
+        if ($profile_check) {
+            $profile_id = $profile_check['profile_id'];
+            $days = ($profile_id == 2) ? 7 : 30; // Student = 7, Faculty/Non-Faculty = 30
+            
+            // Insert book request
+            $stmt = $conn->prepare("
+                INSERT INTO book_requests
+                (student_id, book_id, request_type, status, return_date)
+                VALUES (?, ?, ?, 'approved', DATE_ADD(CURDATE(), INTERVAL ? DAY))
+            ");
+            $stmt->bind_param("iisi", $user_id, $book_id, $request_type, $days);
+            
+            if ($stmt->execute()) {
+                // Update book quantity
+                $conn->query("UPDATE books SET quantity = quantity - 1 WHERE id = $book_id");
+                $return_date_str = date('M d, Y', strtotime("+$days days"));
+                $message = "<strong>Success!</strong> Book borrowed successfully. Return date is set to <strong>$return_date_str</strong>.";
+            } else {
+                $message = "<strong>Error:</strong> " . $stmt->error;
+            }
+            $stmt->close();
+        } else {
+            $message = "<strong>Error:</strong> User profile not found.";
+        }
+    } else {
+        $message = "<strong>Error:</strong> Book is not available.";
+    }
+}
+
 // Pagination & Search Setup
 $per_page = 10;
 $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
@@ -140,6 +182,30 @@ $stmt->execute();
 $result = $stmt->get_result();
 $books = $result->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
+
+// Fetch all members for borrow modal
+$members = [];
+$members_result = $conn->query("
+    SELECT
+        u.id AS user_id,
+        COALESCE(s.student_id, f.faculty_id, nf.employee_id, u.username) AS member_id,
+        CONCAT(u.first_name, ' ', u.last_name) AS full_name,
+        CASE
+            WHEN u.profile_id = 2 THEN 'Student'
+            WHEN u.profile_id = 3 THEN 'Faculty'
+            WHEN u.profile_id = 4 THEN 'Non-Faculty'
+            ELSE 'Unknown'
+        END AS role
+    FROM users u
+    LEFT JOIN students s ON u.id = s.user_id
+    LEFT JOIN faculty f ON u.id = f.user_id
+    LEFT JOIN non_faculty nf ON u.id = nf.user_id
+    WHERE u.profile_id IN (2, 3, 4)
+    ORDER BY u.first_name
+");
+if ($members_result) {
+    $members = $members_result->fetch_all(MYSQLI_ASSOC);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -220,6 +286,7 @@ $stmt->close();
             display: inline-flex;
             align-items: center;
             gap: 8px;
+            transition: all 0.3s ease;
         }
         .btn-add {
             background: #2e7d32;
@@ -237,6 +304,11 @@ $stmt->close();
             color: white;
         }
         .btn-delete:hover { background: #e53935; }
+        .btn-borrow {
+            background: #42a5f5;
+            color: white;
+        }
+        .btn-borrow:hover { background: #1e88e5; }
         .btn-cancel { background: #ccc; color: #333; }
         .btn-save { background: #2e7d32; color: white; }
 
@@ -304,6 +376,7 @@ $stmt->close();
             padding-top: 16px;
             display: flex;
             gap: 10px;
+            flex-wrap: wrap;
         }
         .no-books-message {
             grid-column: 1 / -1;
@@ -339,7 +412,7 @@ $stmt->close();
             border-radius: 20px;
             font-weight: 600;
         }
-        /* Modal */
+        /* Modals */
         .modal {
             display: none;
             position: fixed;
@@ -366,6 +439,9 @@ $stmt->close();
             display: flex;
             justify-content: space-between;
             align-items: center;
+        }
+        .modal-header.borrow-header {
+            background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);
         }
         .close-modal {
             background: none;
@@ -449,6 +525,41 @@ $stmt->close();
             color: #555;
             font-size: 1.1rem;
         }
+        
+        /* Book info preview in borrow modal */
+        .book-info-preview {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #42a5f5;
+        }
+        .book-info-preview p {
+            margin: 5px 0;
+        }
+        .book-info-preview strong {
+            color: #2e7d32;
+        }
+        .btn-submit {
+            background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 16px;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+        }
+        .btn-submit:hover {
+            background: linear-gradient(135deg, #1e88e5 0%, #1565c0 100%);
+            transform: translateY(-2px);
+        }
     </style>
 </head>
 <body>
@@ -457,6 +568,9 @@ $stmt->close();
 <main class="main-content">
     <div class="header">
         <h1><i class="fas fa-book"></i> Book Management</h1>
+        <button class="btn btn-borrow" id="openBorrowModal">
+            <i class="fas fa-hand-holding"></i> Borrow Book (Walk-in)
+        </button>
     </div>
     <div class="container">
         <?php if ($message): ?>
@@ -535,6 +649,9 @@ $stmt->close();
                                 <button class="btn btn-edit" onclick="editBook(<?= $book['id'] ?>)">
                                     <i class="fas fa-edit"></i> Edit
                                 </button>
+                                <button class="btn btn-borrow" onclick="quickBorrow(<?= $book['id'] ?>)">
+                                    <i class="fas fa-hand-holding"></i> Borrow
+                                </button>
                                 <button class="btn btn-delete" onclick="if(confirm('Delete this book?')) alert('Delete not implemented yet');">
                                     <i class="fas fa-trash"></i> Delete
                                 </button>
@@ -586,7 +703,7 @@ $stmt->close();
     </div>
 </main>
 
-<!-- Modal -->
+<!-- Add/Edit Book Modal -->
 <div class="modal" id="bookModal">
     <div class="modal-content">
         <div class="modal-header">
@@ -668,7 +785,80 @@ $stmt->close();
     </div>
 </div>
 
+<!-- Borrow Book (Walk-in) Modal -->
+<div id="borrowModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header borrow-header">
+            <h2><i class="fas fa-hand-holding"></i> Borrow Book (Walk-in)</h2>
+            <button class="close-modal" id="closeBorrowModal">×</button>
+        </div>
+        <div class="modal-body">
+            <form method="POST" id="borrowForm">
+                <input type="hidden" name="borrow_book" value="1">
+                
+                <div class="form-group">
+                    <label for="book_select"><i class="fas fa-book"></i> Select Book *</label>
+                    <select name="book_id" id="book_select" required onchange="updateBookInfo()">
+                        <option value="">-- Select a Book --</option>
+                        <?php foreach ($books as $book): ?>
+                            <option value="<?= $book['id'] ?>"
+                                data-title="<?= htmlspecialchars($book['title']) ?>"
+                                data-author="<?= htmlspecialchars($book['author']) ?>"
+                                data-call="<?= htmlspecialchars($book['call_number']) ?>"
+                                data-quantity="<?= $book['quantity'] ?>">
+                                <?= htmlspecialchars($book['title']) ?> by <?= htmlspecialchars($book['author']) ?> (Available: <?= $book['quantity'] ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div id="bookInfo" class="book-info-preview" style="display: none;">
+                    <p><strong><i class="fas fa-book"></i> Selected Book:</strong> <span id="bookTitle"></span></p>
+                    <p><strong><i class="fas fa-user"></i> Author:</strong> <span id="bookAuthor"></span></p>
+                    <p><strong><i class="fas fa-hashtag"></i> Call Number:</strong> <span id="bookCall"></span></p>
+                    <p><strong><i class="fas fa-copy"></i> Available Copies:</strong> <span id="bookQuantity"></span></p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="member_select"><i class="fas fa-users"></i> Select Member *</label>
+                    <select name="user_id" id="member_select" required onchange="updateReturnDate()">
+                        <option value="">-- Select a Member --</option>
+                        <?php foreach ($members as $member): ?>
+                            <option value="<?= $member['user_id'] ?>" data-role="<?= htmlspecialchars($member['role']) ?>">
+                                <?= htmlspecialchars($member['member_id'] ?: '—') ?> - 
+                                <?= htmlspecialchars($member['full_name']) ?>
+                                (<?= htmlspecialchars($member['role']) ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <!-- Visible Request Type (Fixed to Borrow) -->
+                <div class="form-group">
+                    <label><i class="fas fa-tag"></i> Request Type</label>
+                    <input type="text" value="Borrow" readonly style="background-color: #e8f5e9; font-weight: bold; color: #2e7d32; border: 2px solid #2e7d32;">
+                    <small style="color: #666; display: block; margin-top: 5px;">Walk-in borrow is always recorded as <strong>Borrow</strong> request type.</small>
+                </div>
+                
+                <div class="form-group">
+                    <label><i class="fas fa-calendar-alt"></i> Return Date (Auto-set based on role)</label>
+                    <input type="text" id="returnDatePreview" value="Will be set automatically" readonly style="background-color: #f0f0f0;">
+                    <small style="color: #666; display: block; margin-top: 5px;">
+                        Student: 7 days<br>
+                        Faculty / Non-Faculty: 30 days
+                    </small>
+                </div>
+                
+                <button type="submit" class="btn-submit">
+                    <i class="fas fa-check-circle"></i> Confirm Borrow
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
+// Book Modal
 const modal = document.getElementById('bookModal');
 const addBtn = document.getElementById('addBookBtn');
 const closeBtn = document.getElementById('closeModal');
@@ -729,6 +919,75 @@ function editBook(id) {
         currentCoverPreview.style.display = 'none';
     }
     modal.style.display = 'flex';
+}
+
+// Borrow Modal
+const borrowModal = document.getElementById('borrowModal');
+const openBorrowBtn = document.getElementById('openBorrowModal');
+const closeBorrowBtn = document.getElementById('closeBorrowModal');
+
+openBorrowBtn?.addEventListener('click', () => {
+    borrowModal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+});
+
+closeBorrowBtn?.addEventListener('click', () => {
+    borrowModal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+});
+
+window.addEventListener('click', (e) => {
+    if (e.target === borrowModal) {
+        borrowModal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }
+    if (e.target === modal) {
+        modal.style.display = 'none';
+    }
+});
+
+function quickBorrow(id) {
+    // Pre-select the book in the borrow modal
+    const bookSelect = document.getElementById('book_select');
+    if (bookSelect) {
+        bookSelect.value = id;
+        updateBookInfo();
+    }
+    borrowModal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+function updateBookInfo() {
+    const select = document.getElementById('book_select');
+    const bookInfo = document.getElementById('bookInfo');
+    const selectedOption = select.options[select.selectedIndex];
+    
+    if (select.value) {
+        document.getElementById('bookTitle').textContent = selectedOption.getAttribute('data-title');
+        document.getElementById('bookAuthor').textContent = selectedOption.getAttribute('data-author');
+        document.getElementById('bookCall').textContent = selectedOption.getAttribute('data-call');
+        document.getElementById('bookQuantity').textContent = selectedOption.getAttribute('data-quantity');
+        bookInfo.style.display = 'block';
+    } else {
+        bookInfo.style.display = 'none';
+    }
+    updateReturnDate();
+}
+
+function updateReturnDate() {
+    const memberSelect = document.getElementById('member_select');
+    const selectedOption = memberSelect.options[memberSelect.selectedIndex];
+    const role = selectedOption ? selectedOption.getAttribute('data-role') : '';
+    
+    let days = 7; // Default for students
+    if (role === 'Faculty' || role === 'Non-Faculty') {
+        days = 30;
+    }
+    
+    const returnDate = new Date();
+    returnDate.setDate(returnDate.getDate() + days);
+    const formatted = returnDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    document.getElementById('returnDatePreview').value = formatted + ` (${days} days)`;
 }
 </script>
 </body>
