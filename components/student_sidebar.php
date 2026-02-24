@@ -1,6 +1,6 @@
 <?php
-// student_sidebar.php
-// Start session kung hindi pa na-start
+// student_sidebar.php  (renamed suggestion: sidebar.php or user_sidebar.php in the future)
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -8,10 +8,10 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once '../connection/dbconnection.php';
 
 // Default values
-$student_name = "Student";
+$user_name = "User";
 $profile_image = null;
 
-// Kunin ang student info kung logged in
+// Get user info if logged in
 if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
     $user_id = (int)$_SESSION['user_id'];
 
@@ -20,18 +20,20 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
             first_name,
             last_name,
             profile_image
-        FROM students 
-        WHERE user_id = ?
+        FROM users 
+        WHERE id = ?
         LIMIT 1
     ");
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
     $result = $stmt->get_result();
 
-    if ($student = $result->fetch_assoc()) {
-        $student_name = htmlspecialchars(trim($student['first_name'] . ' ' . $student['last_name']));
-        if (!empty($student['profile_image']) && file_exists('../' . $student['profile_image'])) {
-            $profile_image = '../' . htmlspecialchars($student['profile_image']);
+    if ($user = $result->fetch_assoc()) {
+        $user_name = htmlspecialchars(trim($user['first_name'] . ' ' . $user['last_name']));
+        
+        // Profile image handling (same logic as before)
+        if (!empty($user['profile_image']) && file_exists('../' . $user['profile_image'])) {
+            $profile_image = '../' . htmlspecialchars($user['profile_image']);
         }
     }
     $stmt->close();
@@ -64,19 +66,17 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
         color: white;
     }
 
-    /* Collapsed state (para sa mobile) */
     #sidebar.close-sidebar {
         transform: translateX(-100%);
     }
 
-    /* Logo & Welcome Section */
     .logo-container {
         padding: 2rem 1rem;
         text-align: center;
         border-bottom: 1px solid rgba(255,255,255,0.1);
     }
 
-    .student-welcome {
+    .user-welcome {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -85,7 +85,7 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
         padding: 0 1rem;
     }
 
-    .student-avatar {
+    .user-avatar {
         width: 60px;
         height: 60px;
         border-radius: 50%;
@@ -123,7 +123,6 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
         margin-top: 0.3rem;
     }
 
-    /* Navigation Items */
     .nav-item {
         display: flex;
         align-items: center;
@@ -156,7 +155,6 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
         text-align: center;
     }
 
-    /* Toggle Button (Mobile) */
     #openSidebarBtn {
         position: fixed;
         top: 1rem;
@@ -178,7 +176,6 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
         box-shadow: 0 6px 20px rgba(46,125,50,0.6);
     }
 
-    /* Logout Button */
     .logout-container {
         margin-top: auto;
         padding: 1.5rem;
@@ -205,7 +202,6 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
         box-shadow: 0 4px 15px rgba(255,87,87,0.3);
     }
 
-    /* Scrollbar */
     #sidebar::-webkit-scrollbar {
         width: 6px;
     }
@@ -220,7 +216,6 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
         background: rgba(255,255,255,0.5);
     }
 
-    /* Responsive - Mobile */
     @media (max-width: 1024px) {
         #sidebar {
             transform: translateX(-100%);
@@ -247,16 +242,16 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
     <!-- Logo & Dynamic Welcome -->
     <div class="logo-container">
         <!-- <img src="../images/logo.png" alt="La Trinidad Academy Logo" class="h-20 w-20 object-contain mx-auto mb-4"> -->
-        <div class="student-welcome">
+        <div class="user-welcome">
             <?php if ($profile_image): ?>
-                <img src="<?= $profile_image ?>" alt="Profile" class="student-avatar">
+                <img src="<?= $profile_image ?>" alt="Profile" class="user-avatar">
             <?php else: ?>
                 <div class="default-avatar">
-                    <?= strtoupper(substr($student_name, 0, 1)) ?>
+                    <?= strtoupper(substr($user_name, 0, 1)) ?>
                 </div>
             <?php endif; ?>
             <div class="welcome-text">
-                <h3>Welcome, <?= $student_name ?>!</h3>
+                <h3>Welcome, <?= $user_name ?>!</h3>
                 <p>Happy Reading!</p>
             </div>
         </div>
@@ -279,7 +274,7 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
         <!-- Pwede ka magdagdag ng iba pang links dito -->
     </nav>
 
-    <!-- Logout at Bottom -->
+    <!-- Logout -->
     <div class="logout-container">
         <a href="../controller/logout.php" class="logout-btn">
             <i class="fas fa-sign-out-alt mr-3"></i>
@@ -289,13 +284,11 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
 </div>
 
 <script>
-    // DOM Elements
     const sidebar = document.getElementById('sidebar');
     const openBtn = document.getElementById('openSidebarBtn');
     const mainContent = document.querySelector('.main-content-expanded') || document.querySelector('.main-content');
     const navItems = document.querySelectorAll('#sidebar .nav-item');
 
-    // Toggle Sidebar (for mobile)
     openBtn.addEventListener('click', () => {
         sidebar.classList.toggle('close-sidebar');
         openBtn.classList.toggle('hidden');
@@ -304,7 +297,6 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
         }
     });
 
-    // Set active navigation item
     function setActiveNav() {
         const currentPage = window.location.pathname.split('/').pop().replace('.php', '');
         
@@ -318,11 +310,9 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
         });
     }
 
-    // Run on page load
     document.addEventListener('DOMContentLoaded', () => {
         setActiveNav();
 
-        // Highlight on click (before navigation)
         navItems.forEach(item => {
             item.addEventListener('click', () => {
                 navItems.forEach(i => i.classList.remove('active'));
@@ -331,6 +321,5 @@ if (isset($_SESSION['user_id']) && is_numeric($_SESSION['user_id'])) {
         });
     });
 
-    // Update active on back/forward navigation
     window.addEventListener('popstate', setActiveNav);
 </script>
