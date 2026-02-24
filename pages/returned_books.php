@@ -1,5 +1,5 @@
 <?php
-// returned_books.php - Admin: Current Borrows & Return History + Overdue Fine + Damage Option
+// returned_books.php - Admin: Current Borrows & Return History + Overdue Fine + Damage + Not Returned option
 session_start();
 require_once '../connection/dbconnection.php';
 
@@ -13,9 +13,9 @@ define('FINE_PER_DAY', 5.00); // ₱5 per day overdue
 
 // Handle Returned / Not Returned via POST from modal
 $message = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'], $_POST['action'], $_POST['admin_notes'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'], $_POST['action'])) {
     $request_id     = (int)$_POST['request_id'];
-    $action         = $_POST['action']; // 'return_approve' or 'return_reject'
+    $action         = $_POST['action']; // dapat 'return_approve' o 'return_reject'
     $admin_notes    = trim($_POST['admin_notes'] ?? '');
     $is_damaged     = isset($_POST['is_damaged']) && $_POST['is_damaged'] === '1';
     $damage_fine    = $is_damaged ? (float)($_POST['damage_fine'] ?? 0) : 0.00;
@@ -38,43 +38,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'], $_POST[
         $current_status = $current['status'];
         $book_id = (int)$current['book_id'];
         $due_date = $current['return_date'] ? new DateTime($current['return_date']) : null;
-        $new_status = null;
+
+        $new_status   = null;
         $do_increment = false;
         $overdue_fine = 0.00;
         $total_fine   = 0.00;
         $valid_action = false;
 
         if ($action === 'return_approve' && in_array($current_status, ['approved', 'return_pending'])) {
-            $new_status = 'returned';
+            $new_status   = 'returned';
             $do_increment = true;
             $valid_action = true;
 
-            // Calculate overdue fine
             if ($due_date) {
                 $today = new DateTime();
                 $interval = $today->diff($due_date);
-                if ($interval->invert) { // overdue
+                if ($interval->invert) {
                     $overdue_fine = $interval->days * FINE_PER_DAY;
                 }
             }
 
             $total_fine = $overdue_fine + $damage_fine;
 
-            // Append damage info to notes
             if ($is_damaged) {
                 $damage_note = "Damaged book reported – additional fine ₱" . number_format($damage_fine, 2);
                 $admin_notes = $admin_notes ? $admin_notes . "\n" . $damage_note : $damage_note;
             }
-        } elseif ($action === 'return_reject' && in_array($current_status, ['approved', 'return_pending'])) {
-            $new_status = 'approved';
+        } 
+        elseif ($action === 'return_reject' && in_array($current_status, ['approved', 'return_pending'])) {
+            $new_status   = 'not_returned';
             $do_increment = false;
             $valid_action = true;
+            $total_fine   = 0.00;
+
+            if (empty($admin_notes)) {
+                $admin_notes = "Hindi naibalik ng borrower.";
+            }
         }
 
         if ($valid_action) {
             $conn->begin_transaction();
             try {
-                // Update book_requests
+                // ─── SAFETY CHECK: siguraduhin na may status talaga ─────────────────────
+                if (empty($new_status)) {
+                    throw new Exception("Walang status na ise-set! (action = '$action')");
+                }
+
                 $stmt = $conn->prepare("
                     UPDATE book_requests
                     SET status = ?,
@@ -83,11 +92,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'], $_POST[
                         updated_at = NOW()
                     WHERE id = ?
                 ");
+                if (!$stmt) {
+                    throw new Exception("Prepare failed: " . $conn->error);
+                }
+
                 $stmt->bind_param("ssdi", $new_status, $admin_notes, $total_fine, $request_id);
                 $stmt->execute();
+
+                if ($stmt->affected_rows === 0) {
+                    throw new Exception("Walang row na na-update (baka mali ang ID o hindi na-match ang condition)");
+                }
+
                 $stmt->close();
 
-                // Increment quantity if returned
                 if ($do_increment) {
                     $stmt = $conn->prepare("UPDATE books SET quantity = quantity + 1 WHERE id = ?");
                     $stmt->bind_param("i", $book_id);
@@ -100,6 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'], $_POST[
 
                 $conn->commit();
 
+                // Success message + redirect
                 if ($action === 'return_approve') {
                     if ($total_fine > 0) {
                         $msg = $is_damaged ? " (may damage + overdue)" : " (overdue)";
@@ -108,20 +126,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'], $_POST[
                         $message = "<strong>Tagumpay!</strong> Na-confirm na <strong>naibalik na</strong> ang libro (walang multa).";
                     }
                 } else {
-                    $message = "<strong>Tagumpay!</strong> Na-confirm na <strong>hindi pa naibalik</strong> ang libro.";
+                    $message = "<strong>Tagumpay!</strong> Minarkahan bilang <strong>HINDI NAIBALIK</strong> — dapat makita na sa history.";
                 }
+
+                header("Location: returned_books.php?success=1");
+                exit;
+
             } catch (Exception $e) {
                 $conn->rollback();
                 $message = "<strong>Error:</strong> " . htmlspecialchars($e->getMessage());
             }
         } else {
-            $message = "<strong>Error:</strong> Invalid action for current status.";
+            $message = "<strong>Error:</strong> Invalid action or status. (action: $action, current: $current_status)";
         }
     }
 }
 
+// Success message from redirect
+if (isset($_GET['success'])) {
+    $message = "<strong>Tagumpay!</strong> Na-update ang record. I-refresh kung hindi pa lumalabas sa history.";
+}
+
 // ────────────────────────────────────────────────
-// 1. Active Borrows (approved + return_pending)
+// 1. Active Borrows
 // ────────────────────────────────────────────────
 $active_requests = [];
 $sql_active = "
@@ -166,13 +193,13 @@ if ($result_active) {
 }
 
 // ────────────────────────────────────────────────
-// 2. Return History (returned only) + Pagination
+// 2. Return History + Pagination
 // ────────────────────────────────────────────────
 $per_page = 5;
 $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
 $offset = ($page - 1) * $per_page;
 
-$total_history = $conn->query("SELECT COUNT(*) AS total FROM book_requests WHERE status = 'returned'")
+$total_history = $conn->query("SELECT COUNT(*) AS total FROM book_requests WHERE status IN ('returned', 'not_returned')")
                      ->fetch_assoc()['total'] ?? 0;
 $total_pages = $total_history > 0 ? ceil($total_history / $per_page) : 0;
 
@@ -185,6 +212,7 @@ $history_requests = [];
 $sql_history = "
     SELECT
         r.id,
+        r.status,
         COALESCE(s.student_id, f.faculty_id, nf.employee_id, u.username, '—') AS member_id,
         TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS member_name,
         CASE WHEN u.profile_id = 2 THEN 'Student'
@@ -194,7 +222,7 @@ $sql_history = "
         b.title AS book_title,
         r.request_date AS borrow_date,
         r.return_date,
-        r.updated_at AS returned_date,
+        r.updated_at AS action_date,
         r.admin_notes,
         r.fine
     FROM book_requests r
@@ -203,7 +231,7 @@ $sql_history = "
     LEFT JOIN students s ON u.id = s.user_id
     LEFT JOIN faculty f ON u.id = f.user_id
     LEFT JOIN non_faculty nf ON u.id = nf.user_id
-    WHERE r.status = 'returned'
+    WHERE r.status IN ('returned', 'not_returned')
     ORDER BY r.updated_at DESC
     LIMIT ?, ?
 ";
@@ -238,12 +266,13 @@ $stmt_history->close();
         .btn { padding:8px 16px; border-radius:6px; border:none; font-weight:600; cursor:pointer; }
         .btn-approve { background:#2e7d32; color:white; }
         .btn-approve:hover { background:#1b5e20; }
-        .btn-reject { background:#ef6c00; color:white; }
-        .btn-reject:hover { background:#d84315; }
+        .btn-reject { background:#c62828; color:white; }
+        .btn-reject:hover { background:#b71c1c; }
         .status-badge { padding:6px 12px; border-radius:20px; font-size:13px; font-weight:600; }
         .status-borrowed { background:#e3f2fd; color:#1565c0; }
         .status-pending { background:#fff3cd; color:#856404; }
         .status-returned { background:#e8f5e9; color:#2e7d32; }
+        .status-not-returned { background:#ffebee; color:#c62828; }
         .fine-warning { color:#d32f2f; font-weight:600; }
         .fine-zero { color:#555; }
         .role-tag { color:#555; font-style:italic; font-size:0.92em; }
@@ -344,41 +373,45 @@ $stmt_history->close();
             </div>
 
             <!-- RETURN HISTORY -->
-            <h2>2. Return History</h2>
+            <h2>2. Return & Not-Returned History</h2>
             <div class="table-container">
                 <table>
                     <thead>
                         <tr>
+                            <th>Status</th>
                             <th>Member ID</th>
                             <th>Member Name</th>
                             <th>Book Title</th>
                             <th>Borrowed On</th>
-                            <th>Returned On</th>
                             <th>Due Date</th>
+                            <th>Action Date</th>
                             <th>Fine (₱)</th>
                             <th>Admin Notes</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($history_requests)): ?>
-                            <tr><td colspan="8" class="no-data">
-                                <i class="fas fa-history"></i><br>Walang return history pa.
+                            <tr><td colspan="9" class="no-data">
+                                <i class="fas fa-history"></i><br>Walang return o not-returned history pa.
                             </td></tr>
                         <?php else: ?>
                             <?php foreach ($history_requests as $req): ?>
                                 <?php
+                                $status_display = $req['status'] === 'returned' ? 'Returned' : 'Not Returned';
+                                $status_class   = $req['status'] === 'returned' ? 'status-returned' : 'status-not-returned';
                                 $display_name = htmlspecialchars($req['member_name'] ?: '—');
                                 if ($req['role'] !== 'Unknown') $display_name .= ' <span class="role-tag">(' . htmlspecialchars($req['role']) . ')</span>';
                                 $notes = $req['admin_notes'] ? htmlspecialchars(substr($req['admin_notes'],0,80)) . (strlen($req['admin_notes'])>80?'...':'') : '—';
                                 $fine_txt = $req['fine'] > 0 ? number_format($req['fine'], 2) : '—';
                                 ?>
                                 <tr>
+                                    <td><span class="status-badge <?= $status_class ?>"><?= $status_display ?></span></td>
                                     <td><?= htmlspecialchars($req['member_id']) ?></td>
                                     <td><?= $display_name ?></td>
                                     <td><?= htmlspecialchars($req['book_title'] ?: '—') ?></td>
                                     <td><?= date('M d, Y H:i', strtotime($req['borrow_date'])) ?></td>
-                                    <td><?= date('M d, Y H:i', strtotime($req['returned_date'])) ?></td>
                                     <td><?= $req['return_date'] ? date('M d, Y', strtotime($req['return_date'])) : '—' ?></td>
+                                    <td><?= date('M d, Y H:i', strtotime($req['action_date'])) ?></td>
                                     <td><strong><?= $fine_txt ?></strong></td>
                                     <td title="<?= htmlspecialchars($req['admin_notes'] ?: '') ?>"><?= $notes ?></td>
                                 </tr>
@@ -452,7 +485,7 @@ $stmt_history->close();
 
         function openModal(requestId, action, member, book) {
             document.getElementById('modalRequestId').value = requestId;
-            document.getElementById('modalActionInput').value = 'return_' + action;
+            document.getElementById('modalActionInput').value = 'return_' + action;   // → return_approve or return_reject
             document.getElementById('modalStudent').textContent = member;
             document.getElementById('modalBook').textContent = book;
 
@@ -467,7 +500,7 @@ $stmt_history->close();
                 document.getElementById('modalAction').textContent = 'RETURNED';
                 document.getElementById('modalConfirmBtn').textContent = 'Confirm Returned';
                 document.getElementById('modalConfirmBtn').className = 'btn btn-approve';
-                damageSection.classList.remove('hidden'); // show damage option only for Returned
+                damageSection.classList.remove('hidden');
             } else {
                 document.getElementById('modalTitle').textContent = 'Confirm Not Returned';
                 document.getElementById('modalAction').textContent = 'NOT RETURNED';
@@ -496,7 +529,7 @@ $stmt_history->close();
         document.getElementById('modalForm').addEventListener('submit', function(e) {
             document.getElementById('modalNotesHidden').value = document.getElementById('adminNotes').value;
             const action = document.getElementById('modalActionInput').value;
-            const msg = action.includes('approve') ? 'i-confirm na RETURNED' : 'i-confirm na NOT RETURNED';
+            const msg = action.includes('approve') ? 'i-confirm na RETURNED' : 'i-confirm na HINDI NAIBALIK';
             if (!confirm(`Sigurado ka bang gusto mong ${msg} ang record?`)) {
                 e.preventDefault();
             }

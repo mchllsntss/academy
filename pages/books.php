@@ -3,6 +3,33 @@
 require_once '../connection/dbconnection.php';
 $message = '';
 
+// Handle delete request
+if (isset($_GET['delete_id'])) {
+    $delete_id = (int)$_GET['delete_id'];
+
+    // Optional: Check if book is currently borrowed
+    $check_borrow = $conn->prepare("SELECT COUNT(*) FROM book_requests WHERE book_id = ? AND status = 'approved'");
+    $check_borrow->bind_param("i", $delete_id);
+    $check_borrow->execute();
+    $check_borrow->bind_result($borrowed_count);
+    $check_borrow->fetch();
+    $check_borrow->close();
+
+    if ($borrowed_count > 0) {
+        $message = "<strong>Error:</strong> Cannot delete this book. It is currently borrowed by " . $borrowed_count . " user(s).";
+    } else {
+        $stmt = $conn->prepare("DELETE FROM books WHERE id = ?");
+        $stmt->bind_param("i", $delete_id);
+        if ($stmt->execute()) {
+            $message = "<strong>Success!</strong> Book has been deleted.";
+        } else {
+            $message = "<strong>Error:</strong> Failed to delete book. " . $stmt->error;
+        }
+        $stmt->close();
+    }
+}
+
+// Handle add/edit book (same as before)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_book') {
     $call_number    = trim($_POST['callNumber'] ?? '');
     $isbn           = trim($_POST['isbn'] ?? '');
@@ -23,11 +50,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($copyright_year < 1900 || $copyright_year > 2035) $errors[] = "Invalid copyright year.";
     if ($quantity < 1)          $errors[] = "Quantity must be at least 1.";
 
-    // Handle cover image upload
     $cover_image = '';
     $current_cover = '';
     if ($book_id > 0) {
-        // Get current cover for edit
         $stmt = $conn->prepare("SELECT cover_image FROM books WHERE id = ?");
         $stmt->bind_param("i", $book_id);
         $stmt->execute();
@@ -39,9 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     if (isset($_FILES['cover_image']) && $_FILES['cover_image']['error'] === UPLOAD_ERR_OK) {
         $upload_dir = __DIR__ . '/../uploads/books/';
-        if (!is_dir($upload_dir)) {
-            mkdir($upload_dir, 0755, true);
-        }
+        if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
         $file_name = $_FILES['cover_image']['name'];
         $ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
         $allowed = ['jpg', 'jpeg', 'png', 'gif'];
@@ -50,7 +73,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $target = $upload_dir . $new_filename;
             if (move_uploaded_file($_FILES['cover_image']['tmp_name'], $target)) {
                 $cover_image = '../uploads/books/' . $new_filename;
-                // Delete old cover if exists and different
                 if ($book_id > 0 && $current_cover && $current_cover !== $cover_image && file_exists(__DIR__ . '/' . $current_cover)) {
                     unlink(__DIR__ . '/' . $current_cover);
                 }
@@ -62,10 +84,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
     }
 
-    // If no new image uploaded, keep the existing one (for edit) or empty (for add)
     if (empty($errors)) {
         if ($book_id === 0) {
-            // Insert
             $stmt = $conn->prepare("
                 INSERT INTO books
                 (call_number, isbn, title, shelf_location, author, category, copyright_year, quantity, cover_image)
@@ -73,7 +93,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             ");
             $stmt->bind_param("sssssssis", $call_number, $isbn, $title, $shelf_location, $author, $category, $copyright_year, $quantity, $cover_image);
         } else {
-            // Update
             $stmt = $conn->prepare("
                 UPDATE books
                 SET call_number=?, isbn=?, title=?, shelf_location=?, author=?, category=?, copyright_year=?, quantity=?, cover_image=?
@@ -93,24 +112,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Handle borrow request (Walk-in)
+// Handle walk-in borrow (same as before)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['borrow_book'])) {
     $book_id = (int)$_POST['book_id'];
     $user_id = (int)$_POST['user_id'];
-    $request_type = 'borrow'; // Fixed value
+    $request_type = 'borrow';
 
-    // Check if book is available
     $book_check = $conn->query("SELECT quantity FROM books WHERE id = $book_id")->fetch_assoc();
     
     if ($book_check && $book_check['quantity'] > 0) {
-        // Get user's profile to determine return days
         $profile_check = $conn->query("SELECT profile_id FROM users WHERE id = $user_id")->fetch_assoc();
         
         if ($profile_check) {
             $profile_id = $profile_check['profile_id'];
-            $days = ($profile_id == 2) ? 7 : 30; // Student = 7, Faculty/Non-Faculty = 30
+            $days = ($profile_id == 2) ? 7 : 30;
             
-            // Insert book request
             $stmt = $conn->prepare("
                 INSERT INTO book_requests
                 (student_id, book_id, request_type, status, return_date)
@@ -119,7 +135,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['borrow_book'])) {
             $stmt->bind_param("iisi", $user_id, $book_id, $request_type, $days);
             
             if ($stmt->execute()) {
-                // Update book quantity
                 $conn->query("UPDATE books SET quantity = quantity - 1 WHERE id = $book_id");
                 $return_date_str = date('M d, Y', strtotime("+$days days"));
                 $message = "<strong>Success!</strong> Book borrowed successfully. Return date is set to <strong>$return_date_str</strong>.";
@@ -135,13 +150,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['borrow_book'])) {
     }
 }
 
-// Pagination & Search Setup
+// Pagination & Search Setup (same as before)
 $per_page = 10;
 $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
 $search = trim($_GET['search'] ?? '');
 $query_string = $search !== '' ? '&search=' . urlencode($search) : '';
 
-// Build WHERE clause and parameters
 $where_clause = '';
 $param_types = '';
 $params = [];
@@ -153,12 +167,9 @@ if ($search !== '') {
     $param_types = 'sssss';
 }
 
-// Count total books (with search)
 $count_sql = "SELECT COUNT(*) AS total FROM books" . $where_clause;
 $stmt = $conn->prepare($count_sql);
-if (!empty($params)) {
-    $stmt->bind_param($param_types, ...$params);
-}
+if (!empty($params)) $stmt->bind_param($param_types, ...$params);
 $stmt->execute();
 $count_result = $stmt->get_result();
 $total_row = $count_result->fetch_assoc();
@@ -169,7 +180,6 @@ $total_pages = $total_books > 0 ? ceil($total_books / $per_page) : 1;
 if ($page > $total_pages) $page = $total_pages;
 $offset = ($page - 1) * $per_page;
 
-// Fetch current page books
 $sql = "SELECT * FROM books" . $where_clause . " ORDER BY title ASC LIMIT ? OFFSET ?";
 $limit_types = $param_types . 'ii';
 $limit_params = $params;
@@ -183,7 +193,6 @@ $result = $stmt->get_result();
 $books = $result->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
-// Fetch all members for borrow modal
 $members = [];
 $members_result = $conn->query("
     SELECT
@@ -214,6 +223,10 @@ if ($members_result) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Book Management - La Trinidad Academy</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <!-- SweetAlert2 CDN -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
     <style>
         * { margin:0; padding:0; box-sizing:border-box; }
         body {
@@ -231,32 +244,26 @@ if ($members_result) {
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
             margin-bottom: 25px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
         }
         .header h1 {
             color: #2e7d32;
             font-size: 1.7rem;
+            margin: 0;
         }
         .container { max-width: 1400px; margin: 0 auto; }
-        .add-book-section {
+
+        .controls-bar {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 25px;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 16px;
+            margin-bottom: 28px;
+            align-items: center;
         }
-        .search-form {
-            display: flex;
-            gap: 12px;
-            flex: 1;
-            max-width: 680px;
-        }
+
         .search-container {
             position: relative;
             flex: 1;
+            min-width: 320px;
         }
         .search-container i {
             position: absolute;
@@ -265,20 +272,27 @@ if ($members_result) {
             transform: translateY(-50%);
             color: #2e7d32;
         }
-        #searchInput {
+        #liveSearch {
             width: 100%;
-            padding: 12px 14px 12px 44px;
+            padding: 12px 14px 12px 48px;
             border: 1px solid #ccc;
             border-radius: 8px;
             font-size: 1rem;
         }
-        #searchInput:focus {
+        #liveSearch:focus {
             border-color: #2e7d32;
             outline: none;
             box-shadow: 0 0 0 3px rgba(46,125,50,0.15);
         }
+
+        .action-buttons {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
         .btn {
-            padding: 11px 22px;
+            padding: 12px 24px;
             border: none;
             border-radius: 8px;
             cursor: pointer;
@@ -286,39 +300,67 @@ if ($members_result) {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            transition: all 0.3s ease;
+            transition: all 0.25s;
+            font-size: 1rem;
+            min-width: 180px;
+            justify-content: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
         }
-        .btn-add {
+
+        .btn-add, .btn-walkin, .btn-print {
             background: #2e7d32;
             color: white;
-            font-size: 1rem;
         }
-        .btn-add:hover { background: #1b5e20; }
-        .btn-edit {
-            background: #ffb74d;
-            color: #5d4037;
+        .btn-add:hover, .btn-walkin:hover, .btn-print:hover {
+            background: #1b5e20;
+            transform: translateY(-1px);
         }
-        .btn-edit:hover { background: #ffa726; }
-        .btn-delete {
-            background: #ef5350;
-            color: white;
-        }
-        .btn-delete:hover { background: #e53935; }
-        .btn-borrow {
-            background: #42a5f5;
-            color: white;
-        }
-        .btn-borrow:hover { background: #1e88e5; }
-        .btn-cancel { background: #ccc; color: #333; }
-        .btn-save { background: #2e7d32; color: white; }
 
-        /* Books Grid (card browsing view) */
+        .btn-borrow {
+            background: #4caf50;
+            color: white;
+        }
+        .btn-borrow:hover {
+            background: #43a047;
+            transform: translateY(-1px);
+        }
+
+        .btn-submit {
+            background: linear-gradient(135deg, #66bb6a 0%, #43a047 100%);
+            color: white;
+            width: 100%;
+            padding: 14px 24px;
+            font-size: 1.1rem;
+        }
+        .btn-submit:hover {
+            background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
+        }
+
+        .btn-edit {
+            background: #1976d2;
+            color: white;
+        }
+        .btn-edit:hover {
+            background: #1565c0;
+            transform: translateY(-1px);
+        }
+
+        .btn-delete {
+            background: #d32f2f;
+            color: white;
+        }
+        .btn-delete:hover {
+            background: #b71c1c;
+            transform: translateY(-1px);
+        }
+
         .books-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
             gap: 24px;
             margin-top: 20px;
         }
+
         .book-card {
             background: white;
             border-radius: 12px;
@@ -378,17 +420,16 @@ if ($members_result) {
             gap: 10px;
             flex-wrap: wrap;
         }
-        .no-books-message {
+        .no-books-message, .no-results-message {
             grid-column: 1 / -1;
             text-align: center;
             padding: 80px 20px;
             color: #666;
         }
-        .no-books-message i {
+        .no-books-message i, .no-results-message i {
             color: #ccc;
             margin-bottom: 20px;
         }
-        /* Category badges */
         .category-badge {
             padding: 5px 12px;
             border-radius: 20px;
@@ -396,23 +437,11 @@ if ($members_result) {
             font-weight: 600;
             display: inline-block;
         }
-        .category-generalities { background:#f3e5f5; color:#7b1fa2; }
-        .category-philosophy { background:#e8f5e9; color:#2e7d32; }
-        .category-religion { background:#fff3e0; color:#ef6c00; }
-        .category-social-science { background:#e3f2fd; color:#1565c0; }
-        .category-languages { background:#fce4ec; color:#c2185b; }
-        .category-natural-science { background:#e0f2f1; color:#00695c; }
-        .category-applied-science { background:#fff3e0; color:#ef6c00; }
-        .category-arts-and-recreation { background:#f3e5f5; color:#7b1fa2; }
-        .category-literature { background:#fce4ec; color:#c2185b; }
-        .category-geography-and-history { background:#e0f2f1; color:#00695c; }
-        .category-biography-and-collective-biography { background:#e8f5e9; color:#2e7d32; }
         .quantity-badge {
             padding: 5px 12px;
             border-radius: 20px;
             font-weight: 600;
         }
-        /* Modals */
         .modal {
             display: none;
             position: fixed;
@@ -427,7 +456,7 @@ if ($members_result) {
             background: white;
             border-radius: 12px;
             width: 100%;
-            max-width: 780px;
+            max-width: 980px;
             max-height: 92vh;
             overflow-y: auto;
             box-shadow: 0 10px 40px rgba(0,0,0,0.3);
@@ -439,9 +468,9 @@ if ($members_result) {
             display: flex;
             justify-content: space-between;
             align-items: center;
-        }
-        .modal-header.borrow-header {
-            background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
         .close-modal {
             background: none;
@@ -455,7 +484,25 @@ if ($members_result) {
             padding: 16px 24px;
             background: #f8f9fa;
             text-align: right;
+            position: sticky;
+            bottom: 0;
+            z-index: 10;
         }
+
+        /* Print styles - only records will appear when printing */
+        @media print {
+            body * { visibility: hidden; }
+            #printModal, #printModal * { visibility: visible; }
+            #printModal {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+            }
+            .modal-header, .modal-footer, .close-modal { display: none !important; }
+            .modal-content { box-shadow: none; max-height: none; overflow: visible; }
+        }
+
         .form-group { margin-bottom: 20px; }
         label { display: block; margin-bottom: 6px; font-weight: 600; color: #2e7d32; }
         input, select {
@@ -481,8 +528,6 @@ if ($members_result) {
         }
         .message.success { background:#e8f5e9; border-color:#2e7d32; }
         .message.error   { background:#ffebee; border-color:#c62828; }
-
-        /* Pagination */
         .pagination {
             display: flex;
             justify-content: center;
@@ -514,25 +559,18 @@ if ($members_result) {
             box-shadow: none;
             cursor: not-allowed;
         }
-        .pagination span:not(.current):not(.disabled) {
-            padding: 10px 8px;
-            background: transparent;
-            box-shadow: none;
-        }
         .result-info {
             text-align: center;
             margin: 20px 0;
             color: #555;
             font-size: 1.1rem;
         }
-        
-        /* Book info preview in borrow modal */
         .book-info-preview {
             background: #f8f9fa;
             padding: 15px;
             border-radius: 8px;
             margin-bottom: 20px;
-            border-left: 4px solid #42a5f5;
+            border-left: 4px solid #4caf50;
         }
         .book-info-preview p {
             margin: 5px 0;
@@ -540,38 +578,17 @@ if ($members_result) {
         .book-info-preview strong {
             color: #2e7d32;
         }
-        .btn-submit {
-            background: linear-gradient(135deg, #42a5f5 0%, #1e88e5 100%);
-            color: white;
-            border: none;
-            padding: 14px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 16px;
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            transition: all 0.3s ease;
-        }
-        .btn-submit:hover {
-            background: linear-gradient(135deg, #1e88e5 0%, #1565c0 100%);
-            transform: translateY(-2px);
-        }
     </style>
 </head>
 <body>
 <?php include '../components/header.php'; ?>
 <?php include '../components/sidebar.php'; ?>
+
 <main class="main-content">
     <div class="header">
         <h1><i class="fas fa-book"></i> Book Management</h1>
-        <button class="btn btn-borrow" id="openBorrowModal">
-            <i class="fas fa-hand-holding"></i> Borrow Book (Walk-in)
-        </button>
     </div>
+
     <div class="container">
         <?php if ($message): ?>
             <div class="message <?= strpos($message, 'Success') !== false ? 'success' : 'error' ?>">
@@ -579,19 +596,23 @@ if ($members_result) {
             </div>
         <?php endif; ?>
 
-        <div class="add-book-section">
-            <form method="GET" action="" class="search-form">
-                <div class="search-container">
-                    <i class="fas fa-search"></i>
-                    <input type="text" name="search" id="searchInput" placeholder="Search by title, author, category, ISBN, call number..." value="<?= htmlspecialchars($search) ?>">
-                </div>
-                <button type="submit" class="btn btn-add">
-                    <i class="fas fa-search"></i> Search
+        <div class="controls-bar">
+            <div class="search-container">
+                <i class="fas fa-search"></i>
+                <input type="text" id="liveSearch" placeholder="Search by title, author, category, ISBN, call number..." value="<?= htmlspecialchars($search) ?>">
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-add" id="addBookBtn">
+                    <i class="fas fa-plus"></i> Add New Book
                 </button>
-            </form>
-            <button class="btn btn-add" id="addBookBtn">
-                <i class="fas fa-plus"></i> Add New Book
-            </button>
+                <button class="btn btn-walkin" id="openBorrowModal">
+                    <i class="fas fa-hand-holding"></i> Borrow Book (Walk-in)
+                </button>
+                <button class="btn btn-print" onclick="printAllBooks()">
+                    <i class="fas fa-print"></i> Print All Books
+                </button>
+            </div>
         </div>
 
         <?php if ($search !== ''): ?>
@@ -615,9 +636,9 @@ if ($members_result) {
                 </div>
             <?php else: ?>
                 <?php foreach ($books as $book):
-                    $catSlug = strtolower(str_replace([' ', '&', ','], '-', $book['category']));
+                    $searchable = strtolower($book['title'] . ' ' . $book['author'] . ' ' . $book['category'] . ' ' . ($book['isbn'] ?? '') . ' ' . ($book['call_number'] ?? ''));
                 ?>
-                    <div class="book-card" data-id="<?= $book['id'] ?>">
+                    <div class="book-card" data-id="<?= $book['id'] ?>" data-search="<?= htmlspecialchars($searchable) ?>">
                         <div class="book-cover">
                             <?php if (!empty($book['cover_image'])): ?>
                                 <img src="<?= htmlspecialchars($book['cover_image']) ?>" alt="Cover of <?= htmlspecialchars($book['title']) ?>">
@@ -633,7 +654,7 @@ if ($members_result) {
                             <div class="book-details">
                                 <p><strong>Call Number:</strong> <span class="detail-call-number"><?= htmlspecialchars($book['call_number'] ?? '—') ?></span></p>
                                 <p><strong>Shelf Location:</strong> <span class="detail-shelf"><?= htmlspecialchars($book['shelf_location'] ?? '—') ?></span></p>
-                                <p><strong>Category:</strong> <span class="category-badge category-<?= $catSlug ?>"><?= htmlspecialchars($book['category']) ?></span></p>
+                                <p><strong>Category:</strong> <span class="category-badge category-<?= strtolower(str_replace([' ', '&', ','], '-', $book['category'])) ?>"><?= htmlspecialchars($book['category']) ?></span></p>
                                 <p><strong>Copyright Year:</strong> <span class="detail-year"><?= $book['copyright_year'] ?></span></p>
                                 <p><strong>ISBN:</strong> <span class="detail-isbn"><?= htmlspecialchars($book['isbn'] ?: '—') ?></span></p>
                                 <p><strong>Quantity:</strong>
@@ -652,7 +673,7 @@ if ($members_result) {
                                 <button class="btn btn-borrow" onclick="quickBorrow(<?= $book['id'] ?>)">
                                     <i class="fas fa-hand-holding"></i> Borrow
                                 </button>
-                                <button class="btn btn-delete" onclick="if(confirm('Delete this book?')) alert('Delete not implemented yet');">
+                                <button class="btn btn-delete" onclick="confirmDelete(<?= $book['id'] ?>)">
                                     <i class="fas fa-trash"></i> Delete
                                 </button>
                             </div>
@@ -802,10 +823,10 @@ if ($members_result) {
                         <option value="">-- Select a Book --</option>
                         <?php foreach ($books as $book): ?>
                             <option value="<?= $book['id'] ?>"
-                                data-title="<?= htmlspecialchars($book['title']) ?>"
-                                data-author="<?= htmlspecialchars($book['author']) ?>"
-                                data-call="<?= htmlspecialchars($book['call_number']) ?>"
-                                data-quantity="<?= $book['quantity'] ?>">
+                                    data-title="<?= htmlspecialchars($book['title']) ?>"
+                                    data-author="<?= htmlspecialchars($book['author']) ?>"
+                                    data-call="<?= htmlspecialchars($book['call_number']) ?>"
+                                    data-quantity="<?= $book['quantity'] ?>">
                                 <?= htmlspecialchars($book['title']) ?> by <?= htmlspecialchars($book['author']) ?> (Available: <?= $book['quantity'] ?>)
                             </option>
                         <?php endforeach; ?>
@@ -833,7 +854,6 @@ if ($members_result) {
                     </select>
                 </div>
                 
-                <!-- Visible Request Type (Fixed to Borrow) -->
                 <div class="form-group">
                     <label><i class="fas fa-tag"></i> Request Type</label>
                     <input type="text" value="Borrow" readonly style="background-color: #e8f5e9; font-weight: bold; color: #2e7d32; border: 2px solid #2e7d32;">
@@ -857,8 +877,31 @@ if ($members_result) {
     </div>
 </div>
 
+<!-- Print Modal -->
+<div class="modal" id="printModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2><i class="fas fa-print"></i> Books Records</h2>
+            <button class="close-modal" onclick="document.getElementById('printModal').style.display='none'">×</button>
+        </div>
+        <div class="modal-body" id="printContent" style="padding:24px;">
+            <!-- Content filled by JS -->
+        </div>
+        <div class="modal-footer">
+            <button onclick="window.print()" class="btn btn-save">
+                <i class="fas fa-print"></i> Print Now
+            </button>
+            <button onclick="document.getElementById('printModal').style.display='none'" class="btn btn-cancel">
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
-// Book Modal
+// ==============================================
+// BOOK MODAL & EDIT FUNCTION
+// ==============================================
 const modal = document.getElementById('bookModal');
 const addBtn = document.getElementById('addBookBtn');
 const closeBtn = document.getElementById('closeModal');
@@ -880,8 +923,7 @@ addBtn?.addEventListener('click', () => {
 closeBtn?.addEventListener('click', () => modal.style.display = 'none');
 cancelBtn?.addEventListener('click', () => modal.style.display = 'none');
 
-// Preview uploaded image (new or replacement)
-coverInput.addEventListener('change', function() {
+coverInput?.addEventListener('change', function() {
     const file = this.files[0];
     if (file) {
         const reader = new FileReader();
@@ -910,7 +952,6 @@ function editBook(id) {
     const qtyBadge = card.querySelector('.quantity-badge');
     document.getElementById('quantity').value = qtyBadge ? parseInt(qtyBadge.textContent.trim()) || 1 : 1;
 
-    // Current cover preview
     const coverImg = card.querySelector('.book-cover img');
     if (coverImg && coverImg.src) {
         currentCoverImg.src = coverImg.src;
@@ -921,7 +962,9 @@ function editBook(id) {
     modal.style.display = 'flex';
 }
 
-// Borrow Modal
+// ==============================================
+// BORROW MODAL
+// ==============================================
 const borrowModal = document.getElementById('borrowModal');
 const openBorrowBtn = document.getElementById('openBorrowModal');
 const closeBorrowBtn = document.getElementById('closeBorrowModal');
@@ -947,7 +990,6 @@ window.addEventListener('click', (e) => {
 });
 
 function quickBorrow(id) {
-    // Pre-select the book in the borrow modal
     const bookSelect = document.getElementById('book_select');
     if (bookSelect) {
         bookSelect.value = id;
@@ -979,7 +1021,7 @@ function updateReturnDate() {
     const selectedOption = memberSelect.options[memberSelect.selectedIndex];
     const role = selectedOption ? selectedOption.getAttribute('data-role') : '';
     
-    let days = 7; // Default for students
+    let days = 7;
     if (role === 'Faculty' || role === 'Non-Faculty') {
         days = 30;
     }
@@ -988,6 +1030,120 @@ function updateReturnDate() {
     returnDate.setDate(returnDate.getDate() + days);
     const formatted = returnDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     document.getElementById('returnDatePreview').value = formatted + ` (${days} days)`;
+}
+
+// ==============================================
+// LIVE SEARCH
+// ==============================================
+const liveSearch = document.getElementById('liveSearch');
+const booksGrid = document.getElementById('booksGrid');
+
+if (liveSearch && booksGrid) {
+    liveSearch.addEventListener('input', function() {
+        const filter = this.value.toLowerCase().trim();
+        const cards = booksGrid.querySelectorAll('.book-card');
+        let hasVisible = false;
+
+        cards.forEach(card => {
+            const text = card.getAttribute('data-search') || '';
+            if (text.includes(filter)) {
+                card.style.display = '';
+                hasVisible = true;
+            } else {
+                card.style.display = 'none';
+            }
+        });
+
+        let noResults = booksGrid.querySelector('.no-results-message');
+        if (!noResults) {
+            noResults = document.createElement('div');
+            noResults.className = 'no-results-message';
+            noResults.innerHTML = `
+                <i class="fas fa-search fa-5x" style="color:#ddd; margin-bottom:20px;"></i>
+                <h2>No matching books found</h2>
+                <p>Try different keywords or clear the search.</p>
+            `;
+            booksGrid.appendChild(noResults);
+        }
+
+        noResults.style.display = (hasVisible || filter === '') ? 'none' : 'block';
+    });
+
+    if (liveSearch.value.trim() !== '') {
+        liveSearch.dispatchEvent(new Event('input'));
+    }
+}
+
+// ==============================================
+// PRINT MODAL
+// ==============================================
+function printAllBooks() {
+    const printModal = document.getElementById('printModal');
+    const printContent = document.getElementById('printContent');
+
+    let html = `
+        <h1 style="color:#2e7d32; text-align:center; margin-bottom:10px;">Library Books Records</h1>
+        <p style="text-align:center; color:#555; margin-bottom:20px;">Generated on: ${new Date().toLocaleString('en-PH')}</p>
+        <p style="text-align:center; color:#777; margin-bottom:20px;">Total Books: <?= $total_books ?></p>
+        <table style="width:100%; border-collapse:collapse; font-size:0.95rem; margin-top:20px;">
+            <thead>
+                <tr style="background:#2e7d32; color:white;">
+                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Title</th>
+                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Author</th>
+                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Call Number</th>
+                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Category</th>
+                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">ISBN</th>
+                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Qty</th>
+                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Shelf</th>
+                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Year</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    <?php foreach ($books as $book): ?>
+        html += `
+            <tr style="border-bottom:1px solid #eee;">
+                <td style="border:1px solid #ccc; padding:12px;"><?= addslashes(htmlspecialchars($book['title'])) ?></td>
+                <td style="border:1px solid #ccc; padding:12px;"><?= addslashes(htmlspecialchars($book['author'])) ?></td>
+                <td style="border:1px solid #ccc; padding:12px;"><?= addslashes(htmlspecialchars($book['call_number'] ?? '—')) ?></td>
+                <td style="border:1px solid #ccc; padding:12px;"><?= addslashes(htmlspecialchars($book['category'])) ?></td>
+                <td style="border:1px solid #ccc; padding:12px;"><?= addslashes(htmlspecialchars($book['isbn'] ?: '—')) ?></td>
+                <td style="border:1px solid #ccc; padding:12px;"><?= $book['quantity'] ?></td>
+                <td style="border:1px solid #ccc; padding:12px;"><?= addslashes(htmlspecialchars($book['shelf_location'] ?? '—')) ?></td>
+                <td style="border:1px solid #ccc; padding:12px;"><?= $book['copyright_year'] ?></td>
+            </tr>
+        `;
+    <?php endforeach; ?>
+
+    html += `
+            </tbody>
+        </table>
+    `;
+
+    printContent.innerHTML = html;
+    printModal.style.display = 'flex';
+}
+
+// ==============================================
+// DELETE WITH SWEETALERT2 CONFIRMATION
+// ==============================================
+function confirmDelete(id) {
+    Swal.fire({
+        title: 'Are you sure?',
+        text: "You won't be able to revert this!",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Yes, delete it!',
+        cancelButtonText: 'Cancel'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // Redirect to delete
+            window.location.href = "books.php?delete_id=" + id;
+        }
+    });
 }
 </script>
 </body>
