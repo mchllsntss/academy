@@ -1297,8 +1297,8 @@ $message = $data['message'];
                 <!-- Page Header -->
                 <div class="mb-8">
                     <div class="flex justify-between items-center">
-                        <div>
-                            <h2 class="text-2xl font-bold text-gray-800">Member Management</h2>
+                        <div class="mb-8">
+                            <h1 class="text-2xl md:text-3xl font-bold text-gray-800 mb-2">Member Management</h1>
                             <p class="text-gray-600">View and manage all registered members in the library system</p>
                         </div>
                         <div class="flex space-x-4">
