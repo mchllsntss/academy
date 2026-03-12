@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch PENDING requests (unchanged)
+// Fetch PENDING requests
 $pending_requests = [];
 $stmt_pending = $conn->prepare("
     SELECT
@@ -124,12 +124,26 @@ if ($stmt_history) {
         .container { max-width:1400px; margin:0 auto; }
 
         .header {
+            margin-bottom: 2.2rem;
+        }
+        .header-content {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 2rem;
+            flex-wrap: wrap;
+            gap: 1.2rem;
+            margin-bottom: 1rem;
         }
-        .header h1 { color: #15803d; font-size: 2.1rem; }
+        .header h1 { 
+            color: black; 
+            font-size: 2.1rem; 
+            margin: 0;
+        }
+        .header .subtitle {
+            color: #64748b;
+            font-size: 1.05rem;
+            margin: 0.3rem 0 0 0;
+        }
 
         .history-toggle {
             background: #15803d;
@@ -143,8 +157,12 @@ if ($stmt_history) {
             align-items: center;
             gap: 0.6rem;
             transition: all 0.2s;
+            white-space: nowrap;
         }
-        .history-toggle:hover { background: #166534; transform: translateY(-1px); }
+        .history-toggle:hover { 
+            background: #166534; 
+            transform: translateY(-1px); 
+        }
 
         .search-container {
             margin: 1.2rem 0 1.8rem;
@@ -262,6 +280,14 @@ if ($stmt_history) {
         @media (max-width: 992px) {
             .sidebar { transform: translateX(-100%); }
             .main-content { margin-left: 0; }
+            .header-content {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 1rem;
+            }
+            .history-toggle {
+                align-self: flex-end;
+            }
         }
     </style>
 </head>
@@ -274,10 +300,15 @@ if ($stmt_history) {
             <div class="container">
 
                 <div class="header">
-                    <h1><i class="fas fa-book-medical"></i> Book Requests</h1>
-                    <button class="history-toggle" id="toggleHistory">
-                        <i class="fas fa-history"></i> View History
-                    </button>
+                    <div class="header-content">
+                        <div>
+                            <h1><i class="fas fa-book-medical"></i> Book Requests</h1>
+                            <p class="subtitle">View and manage all members book requests</p>
+                        </div>
+                        <button class="history-toggle" id="toggleHistory">
+                            <i class="fas fa-history"></i> View History
+                        </button>
+                    </div>
                 </div>
 
                 <?php if ($message): ?>

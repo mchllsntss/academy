@@ -246,7 +246,7 @@ if ($members_result) {
             margin-bottom: 25px;
         }
         .header h1 {
-            color: #2e7d32;
+            color: black;
             font-size: 1.7rem;
             margin: 0;
         }
@@ -587,6 +587,7 @@ if ($members_result) {
 <main class="main-content">
     <div class="header">
         <h1><i class="fas fa-book"></i> Book Management</h1>
+        <p class="text-gray-600">View and manage all books in the library</p>
     </div>
 
     <div class="container">
