@@ -7,20 +7,38 @@ $message = '';
 if (isset($_GET['delete_id'])) {
     $delete_id = (int)$_GET['delete_id'];
 
-    // Optional: Check if book is currently borrowed
-    $check_borrow = $conn->prepare("SELECT COUNT(*) FROM book_requests WHERE book_id = ? AND status = 'approved'");
-    $check_borrow->bind_param("i", $delete_id);
+    // Check if book is currently borrowed or has pending requests
+    $check_borrow = $conn->prepare("
+        SELECT 
+            (SELECT COUNT(*) FROM book_requests WHERE book_id = ? AND status = 'approved') as borrowed_count,
+            (SELECT COUNT(*) FROM book_requests WHERE book_id = ? AND status = 'pending') as pending_count
+    ");
+    $check_borrow->bind_param("ii", $delete_id, $delete_id);
     $check_borrow->execute();
-    $check_borrow->bind_result($borrowed_count);
+    $check_borrow->bind_result($borrowed_count, $pending_count);
     $check_borrow->fetch();
     $check_borrow->close();
 
     if ($borrowed_count > 0) {
         $message = "<strong>Error:</strong> Cannot delete this book. It is currently borrowed by " . $borrowed_count . " user(s).";
+    } elseif ($pending_count > 0) {
+        $message = "<strong>Error:</strong> Cannot delete this book. It has " . $pending_count . " pending request(s).";
     } else {
+        // Get cover image to delete
+        $stmt = $conn->prepare("SELECT cover_image FROM books WHERE id = ?");
+        $stmt->bind_param("i", $delete_id);
+        $stmt->execute();
+        $stmt->bind_result($cover_image);
+        $stmt->fetch();
+        $stmt->close();
+
         $stmt = $conn->prepare("DELETE FROM books WHERE id = ?");
         $stmt->bind_param("i", $delete_id);
         if ($stmt->execute()) {
+            // Delete cover image if exists
+            if ($cover_image && file_exists(__DIR__ . '/' . $cover_image)) {
+                unlink(__DIR__ . '/' . $cover_image);
+            }
             $message = "<strong>Success!</strong> Book has been deleted.";
         } else {
             $message = "<strong>Error:</strong> Failed to delete book. " . $stmt->error;
@@ -29,7 +47,7 @@ if (isset($_GET['delete_id'])) {
     }
 }
 
-// Handle add/edit book (same as before)
+// Handle add/edit book
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_book') {
     $call_number    = trim($_POST['callNumber'] ?? '');
     $isbn           = trim($_POST['isbn'] ?? '');
@@ -52,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     $cover_image = '';
     $current_cover = '';
+    
     if ($book_id > 0) {
         $stmt = $conn->prepare("SELECT cover_image FROM books WHERE id = ?");
         $stmt->bind_param("i", $book_id);
@@ -65,16 +84,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if (isset($_FILES['cover_image']) && $_FILES['cover_image']['error'] === UPLOAD_ERR_OK) {
         $upload_dir = __DIR__ . '/../uploads/books/';
         if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+        
         $file_name = $_FILES['cover_image']['name'];
         $ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
         $allowed = ['jpg', 'jpeg', 'png', 'gif'];
+        
         if (in_array($ext, $allowed)) {
             $new_filename = 'book_' . ($book_id ?: 'new') . '_' . time() . '.' . $ext;
             $target = $upload_dir . $new_filename;
+            
             if (move_uploaded_file($_FILES['cover_image']['tmp_name'], $target)) {
                 $cover_image = '../uploads/books/' . $new_filename;
-                if ($book_id > 0 && $current_cover && $current_cover !== $cover_image && file_exists(__DIR__ . '/' . $current_cover)) {
-                    unlink(__DIR__ . '/' . $current_cover);
+                
+                // Delete old cover if exists and different
+                if ($book_id > 0 && $current_cover && $current_cover !== $cover_image) {
+                    $old_file = __DIR__ . '/' . $current_cover;
+                    if (file_exists($old_file)) {
+                        unlink($old_file);
+                    }
                 }
             } else {
                 $errors[] = "Failed to upload image.";
@@ -98,7 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 SET call_number=?, isbn=?, title=?, shelf_location=?, author=?, category=?, copyright_year=?, quantity=?, cover_image=?
                 WHERE id = ?
             ");
-            $stmt->bind_param("ssssssiisi", $call_number, $isbn, $title, $shelf_location, $author, $category, $copyright_year, $quantity, $cover_image, $book_id);
+            $stmt->bind_param("sssssssisi", $call_number, $isbn, $title, $shelf_location, $author, $category, $copyright_year, $quantity, $cover_image, $book_id);
         }
 
         if ($stmt->execute()) {
@@ -112,45 +139,121 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Handle walk-in borrow (same as before)
+// Handle walk-in borrow with proper availability check
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['borrow_book'])) {
     $book_id = (int)$_POST['book_id'];
     $user_id = (int)$_POST['user_id'];
     $request_type = 'borrow';
 
-    $book_check = $conn->query("SELECT quantity FROM books WHERE id = $book_id")->fetch_assoc();
-    
-    if ($book_check && $book_check['quantity'] > 0) {
+    // Start transaction
+    $conn->begin_transaction();
+
+    try {
+        // Check book availability with lock
+        $book_check = $conn->query("SELECT quantity FROM books WHERE id = $book_id FOR UPDATE")->fetch_assoc();
+        
+        if (!$book_check) {
+            throw new Exception("Book not found.");
+        }
+
+        if ($book_check['quantity'] <= 0) {
+            throw new Exception("Book is not available for borrowing.");
+        }
+
+        // Check if user already has this book borrowed and not returned
+        $existing_borrow = $conn->query("
+            SELECT COUNT(*) as count 
+            FROM book_requests 
+            WHERE book_id = $book_id 
+            AND student_id = $user_id 
+            AND status = 'approved' 
+            AND return_date >= CURDATE()
+        ")->fetch_assoc();
+
+        if ($existing_borrow['count'] > 0) {
+            throw new Exception("User already has this book borrowed and not yet returned.");
+        }
+
+        // Get user profile for return days
         $profile_check = $conn->query("SELECT profile_id FROM users WHERE id = $user_id")->fetch_assoc();
         
-        if ($profile_check) {
-            $profile_id = $profile_check['profile_id'];
-            $days = ($profile_id == 2) ? 7 : 30;
-            
-            $stmt = $conn->prepare("
-                INSERT INTO book_requests
-                (student_id, book_id, request_type, status, return_date)
-                VALUES (?, ?, ?, 'approved', DATE_ADD(CURDATE(), INTERVAL ? DAY))
-            ");
-            $stmt->bind_param("iisi", $user_id, $book_id, $request_type, $days);
-            
-            if ($stmt->execute()) {
-                $conn->query("UPDATE books SET quantity = quantity - 1 WHERE id = $book_id");
-                $return_date_str = date('M d, Y', strtotime("+$days days"));
-                $message = "<strong>Success!</strong> Book borrowed successfully. Return date is set to <strong>$return_date_str</strong>.";
-            } else {
-                $message = "<strong>Error:</strong> " . $stmt->error;
-            }
-            $stmt->close();
-        } else {
-            $message = "<strong>Error:</strong> User profile not found.";
+        if (!$profile_check) {
+            throw new Exception("User profile not found.");
         }
-    } else {
-        $message = "<strong>Error:</strong> Book is not available.";
+
+        $profile_id = $profile_check['profile_id'];
+        $days = ($profile_id == 2) ? 7 : 30; // Student: 7 days, Faculty/Non-Faculty: 30 days
+        
+        // Insert borrow request (auto-approved for walk-in)
+        $stmt = $conn->prepare("
+            INSERT INTO book_requests
+            (student_id, book_id, request_type, status, return_date)
+            VALUES (?, ?, ?, 'approved', DATE_ADD(CURDATE(), INTERVAL ? DAY))
+        ");
+        $stmt->bind_param("iisi", $user_id, $book_id, $request_type, $days);
+        
+        if (!$stmt->execute()) {
+            throw new Exception("Failed to create borrow record: " . $stmt->error);
+        }
+        $stmt->close();
+
+        // Decrease book quantity
+        $update_result = $conn->query("UPDATE books SET quantity = quantity - 1 WHERE id = $book_id");
+        
+        if (!$update_result) {
+            throw new Exception("Failed to update book quantity.");
+        }
+
+        // Commit transaction
+        $conn->commit();
+
+        $return_date_str = date('M d, Y', strtotime("+$days days"));
+        $message = "<strong>Success!</strong> Book borrowed successfully. Return date is set to <strong>$return_date_str</strong>.";
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        $message = "<strong>Error:</strong> " . $e->getMessage();
     }
 }
 
-// Pagination & Search Setup (same as before)
+// Handle return book
+if (isset($_GET['return_id'])) {
+    $request_id = (int)$_GET['return_id'];
+    
+    $conn->begin_transaction();
+    
+    try {
+        // Get book_id from request
+        $request = $conn->query("SELECT book_id FROM book_requests WHERE id = $request_id")->fetch_assoc();
+        
+        if (!$request) {
+            throw new Exception("Request not found.");
+        }
+        
+        // Update request status
+        $update = $conn->query("UPDATE book_requests SET status = 'returned' WHERE id = $request_id");
+        
+        if (!$update) {
+            throw new Exception("Failed to update request status.");
+        }
+        
+        // Increase book quantity
+        $increase = $conn->query("UPDATE books SET quantity = quantity + 1 WHERE id = " . $request['book_id']);
+        
+        if (!$increase) {
+            throw new Exception("Failed to update book quantity.");
+        }
+        
+        $conn->commit();
+        $message = "<strong>Success!</strong> Book has been returned.";
+        
+    } catch (Exception $e) {
+        $conn->rollback();
+        $message = "<strong>Error:</strong> " . $e->getMessage();
+    }
+}
+
+// Pagination & Search Setup
 $per_page = 10;
 $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
 $search = trim($_GET['search'] ?? '');
@@ -187,33 +290,59 @@ $limit_params[] = $per_page;
 $limit_params[] = $offset;
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param($limit_types, ...$limit_params);
+if (!empty($limit_params)) {
+    $stmt->bind_param($limit_types, ...$limit_params);
+}
 $stmt->execute();
 $result = $stmt->get_result();
 $books = $result->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
-$members = [];
-$members_result = $conn->query("
+// Get all books for borrow dropdown with availability info
+$all_books_for_borrow = [];
+$books_query = "
+    SELECT 
+        b.*,
+        COALESCE((SELECT COUNT(*) FROM book_requests WHERE book_id = b.id AND status = 'approved'), 0) as borrowed_count,
+        COALESCE((SELECT COUNT(*) FROM book_requests WHERE book_id = b.id AND status = 'pending'), 0) as pending_count
+    FROM books b
+    ORDER BY b.title ASC
+";
+$books_result = $conn->query($books_query);
+if ($books_result) {
+    while ($row = $books_result->fetch_assoc()) {
+        $row['available'] = $row['quantity'] - $row['borrowed_count'];
+        $all_books_for_borrow[] = $row;
+    }
+}
+
+// Get all members for borrow dropdown
+$all_members = [];
+$members_query = "
     SELECT
         u.id AS user_id,
         COALESCE(s.student_id, f.faculty_id, nf.employee_id, u.username) AS member_id,
         CONCAT(u.first_name, ' ', u.last_name) AS full_name,
+        u.first_name,
+        u.last_name,
+        u.username,
         CASE
             WHEN u.profile_id = 2 THEN 'Student'
             WHEN u.profile_id = 3 THEN 'Faculty'
             WHEN u.profile_id = 4 THEN 'Non-Faculty'
             ELSE 'Unknown'
-        END AS role
+        END AS role,
+        u.profile_id
     FROM users u
     LEFT JOIN students s ON u.id = s.user_id
     LEFT JOIN faculty f ON u.id = f.user_id
     LEFT JOIN non_faculty nf ON u.id = nf.user_id
     WHERE u.profile_id IN (2, 3, 4)
     ORDER BY u.first_name
-");
+";
+$members_result = $conn->query($members_query);
 if ($members_result) {
-    $members = $members_result->fetch_all(MYSQLI_ASSOC);
+    $all_members = $members_result->fetch_all(MYSQLI_ASSOC);
 }
 ?>
 <!DOCTYPE html>
@@ -223,9 +352,16 @@ if ($members_result) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Book Management - La Trinidad Academy</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    <!-- SweetAlert2 CDN -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- jQuery (required for Select2) -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Select2 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <!-- Select2 Theme -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
+    <!-- Select2 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
     <style>
         * { margin:0; padding:0; box-sizing:border-box; }
@@ -237,6 +373,7 @@ if ($members_result) {
         .main-content {
             margin-left: 260px;
             padding: 25px;
+            transition: margin-left 0.3s;
         }
         .header {
             background: white;
@@ -325,6 +462,15 @@ if ($members_result) {
             transform: translateY(-1px);
         }
 
+        .btn-return {
+            background: #ff9800;
+            color: white;
+        }
+        .btn-return:hover {
+            background: #f57c00;
+            transform: translateY(-1px);
+        }
+
         .btn-submit {
             background: linear-gradient(135deg, #66bb6a 0%, #43a047 100%);
             color: white;
@@ -352,6 +498,22 @@ if ($members_result) {
         .btn-delete:hover {
             background: #b71c1c;
             transform: translateY(-1px);
+        }
+
+        .btn-cancel {
+            background: #757575;
+            color: white;
+        }
+        .btn-cancel:hover {
+            background: #616161;
+        }
+
+        .btn-save {
+            background: #2e7d32;
+            color: white;
+        }
+        .btn-save:hover {
+            background: #1b5e20;
         }
 
         .books-grid {
@@ -436,6 +598,8 @@ if ($members_result) {
             font-size: 0.85rem;
             font-weight: 600;
             display: inline-block;
+            background: #e8f5e9;
+            color: #2e7d32;
         }
         .quantity-badge {
             padding: 5px 12px;
@@ -472,6 +636,9 @@ if ($members_result) {
             top: 0;
             z-index: 10;
         }
+        .borrow-header {
+            background: #4caf50;
+        }
         .close-modal {
             background: none;
             border: none;
@@ -487,9 +654,12 @@ if ($members_result) {
             position: sticky;
             bottom: 0;
             z-index: 10;
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
         }
 
-        /* Print styles - only records will appear when printing */
+        /* Print styles */
         @media print {
             body * { visibility: hidden; }
             #printModal, #printModal * { visibility: visible; }
@@ -505,14 +675,14 @@ if ($members_result) {
 
         .form-group { margin-bottom: 20px; }
         label { display: block; margin-bottom: 6px; font-weight: 600; color: #2e7d32; }
-        input, select {
+        input, select, textarea {
             width: 100%;
             padding: 11px 14px;
             border: 1px solid #ccc;
             border-radius: 6px;
             font-size: 1rem;
         }
-        input:focus, select:focus {
+        input:focus, select:focus, textarea:focus {
             border-color: #2e7d32;
             outline: none;
             box-shadow: 0 0 0 3px rgba(46,125,50,0.2);
@@ -578,6 +748,108 @@ if ($members_result) {
         .book-info-preview strong {
             color: #2e7d32;
         }
+        .warning-text {
+            color: #f57c00;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+        .success-text {
+            color: #2e7d32;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .badge-success {
+            background: #c8e6c9;
+            color: #2e7d32;
+        }
+        .badge-warning {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        .badge-danger {
+            background: #ffebee;
+            color: #c62828;
+        }
+        
+        /* Select2 Custom Styles */
+        .select2-container--bootstrap-5 .select2-selection {
+            min-height: 45px;
+            padding: 5px;
+        }
+        .select2-container--bootstrap-5 .select2-selection--single .select2-selection__rendered {
+            line-height: 35px;
+            font-size: 1rem;
+        }
+        .select2-container--bootstrap-5 .select2-selection--single .select2-selection__arrow {
+            height: 43px;
+        }
+        .select2-container--bootstrap-5 .select2-dropdown {
+            border-color: #2e7d32;
+        }
+        .select2-container--bootstrap-5 .select2-results__option--selected {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        .select2-container--bootstrap-5 .select2-results__option--highlighted {
+            background-color: #4caf50;
+            color: white;
+        }
+        .select2-search__field:focus {
+            border-color: #2e7d32 !important;
+            box-shadow: 0 0 0 3px rgba(46,125,50,0.15) !important;
+        }
+        .book-option, .member-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 5px;
+        }
+        .book-option i, .member-option i {
+            color: #2e7d32;
+            width: 20px;
+        }
+        .book-option-details, .member-option-details {
+            display: flex;
+            flex-direction: column;
+        }
+        .book-option-title {
+            font-weight: 600;
+            color: #333;
+        }
+        .book-option-meta {
+            font-size: 0.85rem;
+            color: #666;
+        }
+        .member-option-name {
+            font-weight: 600;
+            color: #333;
+        }
+        .member-option-id {
+            font-size: 0.85rem;
+            color: #666;
+        }
+        .member-option-role {
+            font-size: 0.8rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 5px;
+        }
+        .role-student { background: #e3f2fd; color: #1976d2; }
+        .role-faculty { background: #e8f5e9; color: #2e7d32; }
+        .role-nonfaculty { background: #fff3e0; color: #f57c00; }
+        .disabled-option {
+            opacity: 0.5;
+        }
+        .select2-container--bootstrap-5 .select2-selection--single {
+            height: 45px !important;
+        }
     </style>
 </head>
 <body>
@@ -637,6 +909,24 @@ if ($members_result) {
                 </div>
             <?php else: ?>
                 <?php foreach ($books as $book):
+                    // Check if book has pending/approved borrows
+                    $status_check = $conn->prepare("
+                        SELECT 
+                            COUNT(*) as total_borrowed,
+                            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count
+                        FROM book_requests 
+                        WHERE book_id = ? AND status IN ('pending', 'approved')
+                    ");
+                    $status_check->bind_param("i", $book['id']);
+                    $status_check->execute();
+                    $status_result = $status_check->get_result();
+                    $status_data = $status_result->fetch_assoc();
+                    $status_check->close();
+                    
+                    $borrowed_count = $status_data['total_borrowed'] ?? 0;
+                    $pending_count = $status_data['pending_count'] ?? 0;
+                    $available = $book['quantity'] - $borrowed_count;
+                    
                     $searchable = strtolower($book['title'] . ' ' . $book['author'] . ' ' . $book['category'] . ' ' . ($book['isbn'] ?? '') . ' ' . ($book['call_number'] ?? ''));
                 ?>
                     <div class="book-card" data-id="<?= $book['id'] ?>" data-search="<?= htmlspecialchars($searchable) ?>">
@@ -655,25 +945,34 @@ if ($members_result) {
                             <div class="book-details">
                                 <p><strong>Call Number:</strong> <span class="detail-call-number"><?= htmlspecialchars($book['call_number'] ?? '—') ?></span></p>
                                 <p><strong>Shelf Location:</strong> <span class="detail-shelf"><?= htmlspecialchars($book['shelf_location'] ?? '—') ?></span></p>
-                                <p><strong>Category:</strong> <span class="category-badge category-<?= strtolower(str_replace([' ', '&', ','], '-', $book['category'])) ?>"><?= htmlspecialchars($book['category']) ?></span></p>
+                                <p><strong>Category:</strong> <span class="category-badge"><?= htmlspecialchars($book['category']) ?></span></p>
                                 <p><strong>Copyright Year:</strong> <span class="detail-year"><?= $book['copyright_year'] ?></span></p>
                                 <p><strong>ISBN:</strong> <span class="detail-isbn"><?= htmlspecialchars($book['isbn'] ?: '—') ?></span></p>
-                                <p><strong>Quantity:</strong>
+                                <p><strong>Status:</strong>
                                     <span class="quantity-badge" style="
-                                        background: <?= $book['quantity'] >= 5 ? '#c8e6c9' : ($book['quantity'] >= 2 ? '#fff9c4' : '#ffcdd2') ?>;
-                                        color: <?= $book['quantity'] >= 5 ? '#2e7d32' : ($book['quantity'] >= 2 ? '#f57f17' : '#c62828') ?>;
+                                        background: <?= $available > 2 ? '#c8e6c9' : ($available > 0 ? '#fff9c4' : '#ffcdd2') ?>;
+                                        color: <?= $available > 2 ? '#2e7d32' : ($available > 0 ? '#f57f17' : '#c62828') ?>;
                                     ">
-                                        <?= $book['quantity'] ?> <?= $book['quantity'] == 1 ? 'copy' : 'copies' ?>
+                                        <?= $available ?> available / <?= $book['quantity'] ?> total
                                     </span>
                                 </p>
+                                <?php if ($pending_count > 0): ?>
+                                    <p><small class="badge badge-warning"><?= $pending_count ?> pending request(s)</small></p>
+                                <?php endif; ?>
                             </div>
                             <div class="action-buttons">
                                 <button class="btn btn-edit" onclick="editBook(<?= $book['id'] ?>)">
                                     <i class="fas fa-edit"></i> Edit
                                 </button>
-                                <button class="btn btn-borrow" onclick="quickBorrow(<?= $book['id'] ?>)">
-                                    <i class="fas fa-hand-holding"></i> Borrow
-                                </button>
+                                <?php if ($available > 0): ?>
+                                    <button class="btn btn-borrow" onclick="quickBorrow(<?= $book['id'] ?>)">
+                                        <i class="fas fa-hand-holding"></i> Borrow
+                                    </button>
+                                <?php else: ?>
+                                    <button class="btn btn-borrow" style="background:#ccc; cursor:not-allowed;" disabled>
+                                        <i class="fas fa-hand-holding"></i> Unavailable
+                                    </button>
+                                <?php endif; ?>
                                 <button class="btn btn-delete" onclick="confirmDelete(<?= $book['id'] ?>)">
                                     <i class="fas fa-trash"></i> Delete
                                 </button>
@@ -783,8 +1082,9 @@ if ($members_result) {
                         <input type="number" id="copyrightYear" name="copyrightYear" min="1900" max="2035" required>
                     </div>
                     <div class="form-group">
-                        <label for="quantity">Quantity / Stock *</label>
+                        <label for="quantity">Total Quantity *</label>
                         <input type="number" id="quantity" name="quantity" min="1" required>
+                        <small>Total number of copies in library</small>
                     </div>
                 </div>
                 <div class="form-group">
@@ -819,58 +1119,104 @@ if ($members_result) {
                 <input type="hidden" name="borrow_book" value="1">
                 
                 <div class="form-group">
-                    <label for="book_select"><i class="fas fa-book"></i> Select Book *</label>
-                    <select name="book_id" id="book_select" required onchange="updateBookInfo()">
-                        <option value="">-- Select a Book --</option>
-                        <?php foreach ($books as $book): ?>
-                            <option value="<?= $book['id'] ?>"
+                    <label for="book_select"><i class="fas fa-book"></i> Search and Select Book *</label>
+                    <select name="book_id" id="book_select" class="form-select book-search-dropdown" required style="width: 100%;">
+                        <option value="">-- Search for a Book --</option>
+                        <?php foreach ($all_books_for_borrow as $book): 
+                            $available = $book['available'];
+                            $status_class = $available > 0 ? 'badge-success' : 'badge-danger';
+                            $status_text = $available > 0 ? "$available available" : "Not available";
+                        ?>
+                            <option value="<?= $book['id'] ?>" 
                                     data-title="<?= htmlspecialchars($book['title']) ?>"
                                     data-author="<?= htmlspecialchars($book['author']) ?>"
                                     data-call="<?= htmlspecialchars($book['call_number']) ?>"
-                                    data-quantity="<?= $book['quantity'] ?>">
-                                <?= htmlspecialchars($book['title']) ?> by <?= htmlspecialchars($book['author']) ?> (Available: <?= $book['quantity'] ?>)
+                                    data-available="<?= $available ?>"
+                                    data-total="<?= $book['quantity'] ?>"
+                                    data-cover="<?= htmlspecialchars($book['cover_image'] ?? '') ?>"
+                                    data-isbn="<?= htmlspecialchars($book['isbn'] ?? '') ?>"
+                                    data-year="<?= $book['copyright_year'] ?>"
+                                    data-category="<?= htmlspecialchars($book['category']) ?>"
+                                    <?= $available <= 0 ? 'disabled' : '' ?>>
+                                <?= htmlspecialchars($book['title']) ?> by <?= htmlspecialchars($book['author']) ?> 
+                                (Call No: <?= htmlspecialchars($book['call_number']) ?>) - [<?= $status_text ?>]
                             </option>
                         <?php endforeach; ?>
                     </select>
+                    <small class="form-text text-muted">Type to search by title, author, call number, ISBN, or category</small>
                 </div>
                 
                 <div id="bookInfo" class="book-info-preview" style="display: none;">
-                    <p><strong><i class="fas fa-book"></i> Selected Book:</strong> <span id="bookTitle"></span></p>
-                    <p><strong><i class="fas fa-user"></i> Author:</strong> <span id="bookAuthor"></span></p>
-                    <p><strong><i class="fas fa-hashtag"></i> Call Number:</strong> <span id="bookCall"></span></p>
-                    <p><strong><i class="fas fa-copy"></i> Available Copies:</strong> <span id="bookQuantity"></span></p>
+                    <div style="display: flex; gap: 20px; align-items: start;">
+                        <div id="bookCoverPreview" style="width: 80px; height: 100px; background: #f0f0f0; border-radius: 4px; overflow: hidden;">
+                            <img id="bookCoverImg" src="" alt="Cover" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+                            <div id="bookCoverPlaceholder" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #ccc;">
+                                <i class="fas fa-book fa-2x"></i>
+                            </div>
+                        </div>
+                        <div style="flex: 1;">
+                            <p><strong><i class="fas fa-book"></i> Title:</strong> <span id="bookTitle"></span></p>
+                            <p><strong><i class="fas fa-user"></i> Author:</strong> <span id="bookAuthor"></span></p>
+                            <p><strong><i class="fas fa-hashtag"></i> Call Number:</strong> <span id="bookCall"></span></p>
+                            <p><strong><i class="fas fa-tags"></i> Category:</strong> <span id="bookCategory"></span></p>
+                            <p><strong><i class="fas fa-calendar"></i> Year:</strong> <span id="bookYear"></span></p>
+                            <p><strong><i class="fas fa-barcode"></i> ISBN:</strong> <span id="bookISBN"></span></p>
+                            <p><strong><i class="fas fa-copy"></i> Available:</strong> <span id="bookAvailable"></span> / <span id="bookTotal"></span> copies</p>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="form-group">
-                    <label for="member_select"><i class="fas fa-users"></i> Select Member *</label>
-                    <select name="user_id" id="member_select" required onchange="updateReturnDate()">
-                        <option value="">-- Select a Member --</option>
-                        <?php foreach ($members as $member): ?>
-                            <option value="<?= $member['user_id'] ?>" data-role="<?= htmlspecialchars($member['role']) ?>">
+                    <label for="member_select"><i class="fas fa-users"></i> Search and Select Member *</label>
+                    <select name="user_id" id="member_select" class="form-select member-search-dropdown" required style="width: 100%;">
+                        <option value="">-- Search for a Member --</option>
+                        <?php foreach ($all_members as $member): 
+                            $role_class = '';
+                            if ($member['role'] == 'Student') $role_class = 'role-student';
+                            elseif ($member['role'] == 'Faculty') $role_class = 'role-faculty';
+                            elseif ($member['role'] == 'Non-Faculty') $role_class = 'role-nonfaculty';
+                        ?>
+                            <option value="<?= $member['user_id'] ?>" 
+                                    data-role="<?= htmlspecialchars($member['role']) ?>"
+                                    data-member-id="<?= htmlspecialchars($member['member_id']) ?>"
+                                    data-fullname="<?= htmlspecialchars($member['full_name']) ?>"
+                                    data-firstname="<?= htmlspecialchars($member['first_name']) ?>"
+                                    data-lastname="<?= htmlspecialchars($member['last_name']) ?>"
+                                    data-username="<?= htmlspecialchars($member['username']) ?>">
                                 <?= htmlspecialchars($member['member_id'] ?: '—') ?> - 
                                 <?= htmlspecialchars($member['full_name']) ?>
                                 (<?= htmlspecialchars($member['role']) ?>)
                             </option>
                         <?php endforeach; ?>
                     </select>
+                    <small class="form-text text-muted">Type to search by name, ID, or username</small>
+                </div>
+                
+                <div id="memberInfo" class="book-info-preview" style="display: none; border-left-color: #1976d2;">
+                    <p><strong><i class="fas fa-id-card"></i> Member ID:</strong> <span id="memberId"></span></p>
+                    <p><strong><i class="fas fa-user"></i> Full Name:</strong> <span id="memberName"></span></p>
+                    <p><strong><i class="fas fa-tag"></i> Role:</strong> <span id="memberRole"></span></p>
+                    <p><strong><i class="fas fa-calendar-alt"></i> Borrowing Period:</strong> <span id="borrowingPeriod"></span></p>
                 </div>
                 
                 <div class="form-group">
                     <label><i class="fas fa-tag"></i> Request Type</label>
-                    <input type="text" value="Borrow" readonly style="background-color: #e8f5e9; font-weight: bold; color: #2e7d32; border: 2px solid #2e7d32;">
-                    <small style="color: #666; display: block; margin-top: 5px;">Walk-in borrow is always recorded as <strong>Borrow</strong> request type.</small>
+                    <input type="text" value="Borrow (Walk-in)" readonly style="background-color: #e8f5e9; font-weight: bold; color: #2e7d32; border: 2px solid #2e7d32;">
                 </div>
                 
                 <div class="form-group">
                     <label><i class="fas fa-calendar-alt"></i> Return Date (Auto-set based on role)</label>
-                    <input type="text" id="returnDatePreview" value="Will be set automatically" readonly style="background-color: #f0f0f0;">
+                    <input type="text" id="returnDatePreview" value="Will be set automatically" readonly style="background-color: #f0f0f0; font-weight: bold;">
                     <small style="color: #666; display: block; margin-top: 5px;">
-                        Student: 7 days<br>
-                        Faculty / Non-Faculty: 30 days
+                        Student: 7 days | Faculty / Non-Faculty: 30 days
                     </small>
                 </div>
                 
-                <button type="submit" class="btn-submit">
+                <div id="borrowWarning" class="warning-text" style="display: none; margin-bottom: 15px; padding: 10px; background: #fff3e0; border-radius: 4px;">
+                    <i class="fas fa-exclamation-triangle"></i> <span id="warningMessage">Please select both book and member to continue.</span>
+                </div>
+                
+                <button type="submit" class="btn-submit" id="confirmBorrowBtn">
                     <i class="fas fa-check-circle"></i> Confirm Borrow
                 </button>
             </form>
@@ -919,10 +1265,18 @@ addBtn?.addEventListener('click', () => {
     document.getElementById('book_id').value = '';
     currentCoverPreview.style.display = 'none';
     modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
 });
 
-closeBtn?.addEventListener('click', () => modal.style.display = 'none');
-cancelBtn?.addEventListener('click', () => modal.style.display = 'none');
+closeBtn?.addEventListener('click', () => {
+    modal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+});
+
+cancelBtn?.addEventListener('click', () => {
+    modal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+});
 
 coverInput?.addEventListener('change', function() {
     const file = this.files[0];
@@ -950,8 +1304,10 @@ function editBook(id) {
     document.getElementById('copyrightYear').value = card.querySelector('.detail-year')?.textContent.trim() || '';
     document.getElementById('isbn').value = (card.querySelector('.detail-isbn')?.textContent.trim() === '—' ? '' : card.querySelector('.detail-isbn')?.textContent.trim());
 
-    const qtyBadge = card.querySelector('.quantity-badge');
-    document.getElementById('quantity').value = qtyBadge ? parseInt(qtyBadge.textContent.trim()) || 1 : 1;
+    // Extract total quantity from status text
+    const statusText = card.querySelector('.quantity-badge')?.textContent.trim() || '';
+    const match = statusText.match(/available \/ (\d+) total/);
+    document.getElementById('quantity').value = match ? parseInt(match[1]) : 1;
 
     const coverImg = card.querySelector('.book-cover img');
     if (coverImg && coverImg.src) {
@@ -961,66 +1317,415 @@ function editBook(id) {
         currentCoverPreview.style.display = 'none';
     }
     modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
 }
 
 // ==============================================
-// BORROW MODAL
+// BORROW MODAL WITH SELECT2 - FIXED VERSION
 // ==============================================
 const borrowModal = document.getElementById('borrowModal');
 const openBorrowBtn = document.getElementById('openBorrowModal');
 const closeBorrowBtn = document.getElementById('closeBorrowModal');
 
-openBorrowBtn?.addEventListener('click', () => {
+// Helper function to escape HTML
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Format book options in dropdown
+function formatBookOption(option) {
+    if (!option.id) {
+        return option.text;
+    }
+    
+    const $option = $(option.element);
+    const title = $option.data('title') || option.text;
+    const author = $option.data('author') || '';
+    const call = $option.data('call') || '';
+    const available = $option.data('available') || 0;
+    const isbn = $option.data('isbn') || '';
+    
+    const isDisabled = $option.is(':disabled');
+    const statusClass = available > 0 ? 'badge-success' : 'badge-danger';
+    const statusText = available > 0 ? `${available} available` : 'Not available';
+    
+    return $(`
+        <div class="book-option ${isDisabled ? 'disabled-option' : ''}">
+            <i class="fas fa-book"></i>
+            <div class="book-option-details">
+                <span class="book-option-title">${escapeHtml(title)}</span>
+                <span class="book-option-meta">
+                    by ${escapeHtml(author)} | Call: ${escapeHtml(call)} | ISBN: ${escapeHtml(isbn)}
+                </span>
+                <span>
+                    <span class="badge ${statusClass}">${statusText}</span>
+                </span>
+            </div>
+        </div>
+    `);
+}
+
+function formatBookSelection(option) {
+    if (!option.id) {
+        return option.text;
+    }
+    
+    const $option = $(option.element);
+    const title = $option.data('title') || option.text;
+    const author = $option.data('author') || '';
+    const available = $option.data('available') || 0;
+    
+    return $(`<span><i class="fas fa-book"></i> ${escapeHtml(title)} by ${escapeHtml(author)} (${available} available)</span>`);
+}
+
+// Format member options in dropdown
+function formatMemberOption(option) {
+    if (!option.id) {
+        return option.text;
+    }
+    
+    const $option = $(option.element);
+    const memberId = $option.data('member-id') || '';
+    const fullname = $option.data('fullname') || '';
+    const role = $option.data('role') || '';
+    
+    let roleClass = '';
+    if (role === 'Student') roleClass = 'role-student';
+    else if (role === 'Faculty') roleClass = 'role-faculty';
+    else if (role === 'Non-Faculty') roleClass = 'role-nonfaculty';
+    
+    return $(`
+        <div class="member-option">
+            <i class="fas fa-user-graduate"></i>
+            <div class="member-option-details">
+                <span class="member-option-name">${escapeHtml(fullname)}</span>
+                <span class="member-option-id">ID: ${escapeHtml(memberId)}</span>
+                <span><span class="member-option-role ${roleClass}">${escapeHtml(role)}</span></span>
+            </div>
+        </div>
+    `);
+}
+
+function formatMemberSelection(option) {
+    if (!option.id) {
+        return option.text;
+    }
+    
+    const $option = $(option.element);
+    const fullname = $option.data('fullname') || '';
+    const role = $option.data('role') || '';
+    
+    return $(`<span><i class="fas fa-user"></i> ${escapeHtml(fullname)} (${escapeHtml(role)})</span>`);
+}
+
+// Initialize Select2 for book dropdown
+function initBookSelect2() {
+    if (typeof $ !== 'undefined' && $('#book_select').length) {
+        $('#book_select').select2({
+            theme: 'bootstrap-5',
+            width: '100%',
+            placeholder: 'Search for a book by title, author, call number, ISBN, or category',
+            allowClear: true,
+            dropdownParent: $('#borrowModal'),
+            matcher: function(params, data) {
+                // If there are no search terms, return all options
+                if ($.trim(params.term) === '') {
+                    return data;
+                }
+
+                // Custom matching to search in title, author, call number, ISBN, category
+                const searchTerm = params.term.toLowerCase();
+                const text = data.text.toLowerCase();
+                const title = $(data.element).data('title')?.toLowerCase() || '';
+                const author = $(data.element).data('author')?.toLowerCase() || '';
+                const call = $(data.element).data('call')?.toLowerCase() || '';
+                const isbn = $(data.element).data('isbn')?.toLowerCase() || '';
+                const category = $(data.element).data('category')?.toLowerCase() || '';
+                
+                if (text.indexOf(searchTerm) > -1 || 
+                    title.indexOf(searchTerm) > -1 || 
+                    author.indexOf(searchTerm) > -1 || 
+                    call.indexOf(searchTerm) > -1 || 
+                    isbn.indexOf(searchTerm) > -1 || 
+                    category.indexOf(searchTerm) > -1) {
+                    return data;
+                }
+                
+                return null;
+            },
+            templateResult: formatBookOption,
+            templateSelection: formatBookSelection
+        });
+    }
+}
+
+// Initialize Select2 for member dropdown
+function initMemberSelect2() {
+    if (typeof $ !== 'undefined' && $('#member_select').length) {
+        $('#member_select').select2({
+            theme: 'bootstrap-5',
+            width: '100%',
+            placeholder: 'Search for a member by name, ID, or username',
+            allowClear: true,
+            dropdownParent: $('#borrowModal'),
+            matcher: function(params, data) {
+                if ($.trim(params.term) === '') {
+                    return data;
+                }
+
+                const searchTerm = params.term.toLowerCase();
+                const text = data.text.toLowerCase();
+                const memberId = $(data.element).data('member-id')?.toLowerCase() || '';
+                const fullname = $(data.element).data('fullname')?.toLowerCase() || '';
+                const firstname = $(data.element).data('firstname')?.toLowerCase() || '';
+                const lastname = $(data.element).data('lastname')?.toLowerCase() || '';
+                const username = $(data.element).data('username')?.toLowerCase() || '';
+                const role = $(data.element).data('role')?.toLowerCase() || '';
+                
+                if (text.indexOf(searchTerm) > -1 || 
+                    memberId.indexOf(searchTerm) > -1 || 
+                    fullname.indexOf(searchTerm) > -1 || 
+                    firstname.indexOf(searchTerm) > -1 || 
+                    lastname.indexOf(searchTerm) > -1 || 
+                    username.indexOf(searchTerm) > -1 || 
+                    role.indexOf(searchTerm) > -1) {
+                    return data;
+                }
+                
+                return null;
+            },
+            templateResult: formatMemberOption,
+            templateSelection: formatMemberSelection
+        });
+    }
+}
+
+openBorrowBtn?.addEventListener('click', function() {
     borrowModal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
+    
+    // Small delay to ensure modal is rendered before initializing Select2
+    setTimeout(function() {
+        initBookSelect2();
+        initMemberSelect2();
+    }, 200);
 });
 
-closeBorrowBtn?.addEventListener('click', () => {
+closeBorrowBtn?.addEventListener('click', function() {
     borrowModal.style.display = 'none';
     document.body.style.overflow = 'auto';
+    
+    // Destroy Select2 instances to prevent memory leaks
+    if (typeof $ !== 'undefined') {
+        if ($('#book_select').data('select2')) {
+            $('#book_select').select2('destroy');
+        }
+        if ($('#member_select').data('select2')) {
+            $('#member_select').select2('destroy');
+        }
+    }
 });
 
 window.addEventListener('click', (e) => {
     if (e.target === borrowModal) {
         borrowModal.style.display = 'none';
         document.body.style.overflow = 'auto';
+        
+        // Destroy Select2 instances
+        if (typeof $ !== 'undefined') {
+            if ($('#book_select').data('select2')) {
+                $('#book_select').select2('destroy');
+            }
+            if ($('#member_select').data('select2')) {
+                $('#member_select').select2('destroy');
+            }
+        }
     }
     if (e.target === modal) {
         modal.style.display = 'none';
+        document.body.style.overflow = 'auto';
     }
 });
 
 function quickBorrow(id) {
-    const bookSelect = document.getElementById('book_select');
-    if (bookSelect) {
-        bookSelect.value = id;
-        updateBookInfo();
-    }
     borrowModal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
+    
+    setTimeout(function() {
+        initBookSelect2();
+        initMemberSelect2();
+        
+        // Set the book value
+        $('#book_select').val(id).trigger('change');
+        updateBookInfo();
+    }, 200);
 }
+
+// Update book info when selection changes
+$(document).on('change', '#book_select', function() {
+    updateBookInfo();
+});
+
+// Update member info when selection changes
+$(document).on('change', '#member_select', function() {
+    updateMemberInfo();
+    updateReturnDate();
+});
 
 function updateBookInfo() {
     const select = document.getElementById('book_select');
     const bookInfo = document.getElementById('bookInfo');
-    const selectedOption = select.options[select.selectedIndex];
+    const borrowWarning = document.getElementById('borrowWarning');
+    const warningMessage = document.getElementById('warningMessage');
     
-    if (select.value) {
-        document.getElementById('bookTitle').textContent = selectedOption.getAttribute('data-title');
-        document.getElementById('bookAuthor').textContent = selectedOption.getAttribute('data-author');
-        document.getElementById('bookCall').textContent = selectedOption.getAttribute('data-call');
-        document.getElementById('bookQuantity').textContent = selectedOption.getAttribute('data-quantity');
+    // Get selected option from Select2
+    let selectedOption = null;
+    if (typeof $ !== 'undefined') {
+        const select2Data = $('#book_select').select2('data')[0];
+        if (select2Data && select2Data.element) {
+            selectedOption = select2Data.element;
+        }
+    }
+    
+    if (!selectedOption && select.selectedIndex > -1) {
+        selectedOption = select.options[select.selectedIndex];
+    }
+    
+    if (selectedOption && selectedOption.value) {
+        const title = selectedOption.getAttribute('data-title') || '';
+        const author = selectedOption.getAttribute('data-author') || '';
+        const call = selectedOption.getAttribute('data-call') || '';
+        const available = selectedOption.getAttribute('data-available') || '0';
+        const total = selectedOption.getAttribute('data-total') || '0';
+        const cover = selectedOption.getAttribute('data-cover') || '';
+        const isbn = selectedOption.getAttribute('data-isbn') || '—';
+        const year = selectedOption.getAttribute('data-year') || '';
+        const category = selectedOption.getAttribute('data-category') || '';
+        
+        document.getElementById('bookTitle').textContent = title;
+        document.getElementById('bookAuthor').textContent = author;
+        document.getElementById('bookCall').textContent = call;
+        document.getElementById('bookAvailable').textContent = available;
+        document.getElementById('bookTotal').textContent = total;
+        document.getElementById('bookISBN').textContent = isbn;
+        document.getElementById('bookYear').textContent = year;
+        document.getElementById('bookCategory').textContent = category;
+        
+        // Handle cover image
+        const coverImg = document.getElementById('bookCoverImg');
+        const coverPlaceholder = document.getElementById('bookCoverPlaceholder');
+        
+        if (cover && cover !== '') {
+            coverImg.src = cover;
+            coverImg.style.display = 'block';
+            coverPlaceholder.style.display = 'none';
+        } else {
+            coverImg.style.display = 'none';
+            coverPlaceholder.style.display = 'flex';
+        }
+        
         bookInfo.style.display = 'block';
+        
+        // Check if member is selected
+        const memberSelect = document.getElementById('member_select');
+        if (!memberSelect.value) {
+            borrowWarning.style.display = 'block';
+            warningMessage.textContent = 'Please select a member to continue.';
+        } else {
+            borrowWarning.style.display = 'none';
+        }
     } else {
         bookInfo.style.display = 'none';
     }
     updateReturnDate();
 }
 
+function updateMemberInfo() {
+    const select = document.getElementById('member_select');
+    const memberInfo = document.getElementById('memberInfo');
+    const borrowWarning = document.getElementById('borrowWarning');
+    const warningMessage = document.getElementById('warningMessage');
+    
+    // Get selected option from Select2
+    let selectedOption = null;
+    if (typeof $ !== 'undefined') {
+        const select2Data = $('#member_select').select2('data')[0];
+        if (select2Data && select2Data.element) {
+            selectedOption = select2Data.element;
+        }
+    }
+    
+    if (!selectedOption && select.selectedIndex > -1) {
+        selectedOption = select.options[select.selectedIndex];
+    }
+    
+    if (selectedOption && selectedOption.value) {
+        const memberId = selectedOption.getAttribute('data-member-id') || '';
+        const fullname = selectedOption.getAttribute('data-fullname') || '';
+        const role = selectedOption.getAttribute('data-role') || '';
+        const days = (role === 'Student') ? 7 : 30;
+        
+        document.getElementById('memberId').textContent = memberId;
+        document.getElementById('memberName').textContent = fullname;
+        document.getElementById('memberRole').textContent = role;
+        document.getElementById('borrowingPeriod').textContent = days + ' days';
+        
+        memberInfo.style.display = 'block';
+        
+        // Check if book is selected
+        const bookSelect = document.getElementById('book_select');
+        if (!bookSelect.value) {
+            borrowWarning.style.display = 'block';
+            warningMessage.textContent = 'Please select a book first.';
+        } else {
+            borrowWarning.style.display = 'none';
+        }
+    } else {
+        memberInfo.style.display = 'none';
+    }
+}
+
 function updateReturnDate() {
     const memberSelect = document.getElementById('member_select');
-    const selectedOption = memberSelect.options[memberSelect.selectedIndex];
-    const role = selectedOption ? selectedOption.getAttribute('data-role') : '';
+    const bookSelect = document.getElementById('book_select');
+    const borrowWarning = document.getElementById('borrowWarning');
+    const warningMessage = document.getElementById('warningMessage');
+    
+    // Get selected member
+    let selectedMember = null;
+    if (typeof $ !== 'undefined') {
+        const select2Data = $('#member_select').select2('data')[0];
+        if (select2Data && select2Data.element) {
+            selectedMember = select2Data.element;
+        }
+    }
+    
+    if (!selectedMember && memberSelect.selectedIndex > -1) {
+        selectedMember = memberSelect.options[memberSelect.selectedIndex];
+    }
+    
+    const role = selectedMember ? selectedMember.getAttribute('data-role') : '';
+    
+    if (!bookSelect.value) {
+        document.getElementById('returnDatePreview').value = 'Select book and member';
+        if (memberSelect.value) {
+            borrowWarning.style.display = 'block';
+            warningMessage.textContent = 'Please select a book.';
+        }
+        return;
+    }
+    
+    if (!memberSelect.value) {
+        document.getElementById('returnDatePreview').value = 'Select member';
+        borrowWarning.style.display = 'block';
+        warningMessage.textContent = 'Please select a member.';
+        return;
+    }
+    
+    borrowWarning.style.display = 'none';
     
     let days = 7;
     if (role === 'Faculty' || role === 'Non-Faculty') {
@@ -1032,6 +1737,42 @@ function updateReturnDate() {
     const formatted = returnDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     document.getElementById('returnDatePreview').value = formatted + ` (${days} days)`;
 }
+
+// Validate borrow form before submit
+document.getElementById('borrowForm')?.addEventListener('submit', function(e) {
+    const bookSelect = document.getElementById('book_select');
+    const memberSelect = document.getElementById('member_select');
+    const borrowWarning = document.getElementById('borrowWarning');
+    const warningMessage = document.getElementById('warningMessage');
+    
+    if (!bookSelect.value || !memberSelect.value) {
+        e.preventDefault();
+        borrowWarning.style.display = 'block';
+        
+        if (!bookSelect.value && !memberSelect.value) {
+            warningMessage.textContent = 'Please select both book and member.';
+        } else if (!bookSelect.value) {
+            warningMessage.textContent = 'Please select a book.';
+        } else {
+            warningMessage.textContent = 'Please select a member.';
+        }
+        
+        // Highlight the empty selects
+        if (!bookSelect.value && typeof $ !== 'undefined') {
+            $('#book_select').next('.select2').find('.select2-selection').css('border-color', '#f57c00');
+        }
+        if (!memberSelect.value && typeof $ !== 'undefined') {
+            $('#member_select').next('.select2').find('.select2-selection').css('border-color', '#f57c00');
+        }
+        
+        setTimeout(() => {
+            if (typeof $ !== 'undefined') {
+                $('#book_select').next('.select2').find('.select2-selection').css('border-color', '');
+                $('#member_select').next('.select2').find('.select2-selection').css('border-color', '');
+            }
+        }, 3000);
+    }
+});
 
 // ==============================================
 // LIVE SEARCH
@@ -1082,40 +1823,61 @@ function printAllBooks() {
     const printModal = document.getElementById('printModal');
     const printContent = document.getElementById('printContent');
 
+    // Get all books including their current status
+    const cards = document.querySelectorAll('.book-card');
+    let booksData = [];
+    
+    cards.forEach(card => {
+        if (card.style.display !== 'none') {
+            const title = card.querySelector('.book-title')?.textContent.trim() || '';
+            const author = card.querySelector('.book-author')?.textContent.replace(/^by\s+/i, '').trim() || '';
+            const callNumber = card.querySelector('.detail-call-number')?.textContent.trim() || '—';
+            const category = card.querySelector('.category-badge')?.textContent.trim() || '';
+            const isbn = card.querySelector('.detail-isbn')?.textContent.trim() || '—';
+            const statusText = card.querySelector('.quantity-badge')?.textContent.trim() || '';
+            const shelf = card.querySelector('.detail-shelf')?.textContent.trim() || '—';
+            const year = card.querySelector('.detail-year')?.textContent.trim() || '';
+            
+            booksData.push({
+                title, author, callNumber, category, isbn, statusText, shelf, year
+            });
+        }
+    });
+
     let html = `
         <h1 style="color:#2e7d32; text-align:center; margin-bottom:10px;">Library Books Records</h1>
-        <p style="text-align:center; color:#555; margin-bottom:20px;">Generated on: ${new Date().toLocaleString('en-PH')}</p>
-        <p style="text-align:center; color:#777; margin-bottom:20px;">Total Books: <?= $total_books ?></p>
-        <table style="width:100%; border-collapse:collapse; font-size:0.95rem; margin-top:20px;">
+        <p style="text-align:center; color:#555; margin-bottom:5px;">Generated on: ${new Date().toLocaleString('en-PH')}</p>
+        <p style="text-align:center; color:#777; margin-bottom:20px;">Total Books Displayed: ${booksData.length}</p>
+        <table style="width:100%; border-collapse:collapse; font-size:0.9rem; margin-top:20px;">
             <thead>
                 <tr style="background:#2e7d32; color:white;">
-                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Title</th>
-                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Author</th>
-                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Call Number</th>
-                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Category</th>
-                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">ISBN</th>
-                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Qty</th>
-                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Shelf</th>
-                    <th style="border:1px solid #ccc; padding:12px; text-align:left;">Year</th>
+                    <th style="border:1px solid #ccc; padding:10px; text-align:left;">Title</th>
+                    <th style="border:1px solid #ccc; padding:10px; text-align:left;">Author</th>
+                    <th style="border:1px solid #ccc; padding:10px; text-align:left;">Call Number</th>
+                    <th style="border:1px solid #ccc; padding:10px; text-align:left;">Category</th>
+                    <th style="border:1px solid #ccc; padding:10px; text-align:left;">ISBN</th>
+                    <th style="border:1px solid #ccc; padding:10px; text-align:left;">Status</th>
+                    <th style="border:1px solid #ccc; padding:10px; text-align:left;">Shelf</th>
+                    <th style="border:1px solid #ccc; padding:10px; text-align:left;">Year</th>
                 </tr>
             </thead>
             <tbody>
     `;
 
-    <?php foreach ($books as $book): ?>
+    booksData.forEach(book => {
         html += `
             <tr style="border-bottom:1px solid #eee;">
-                <td style="border:1px solid #ccc; padding:12px;"><?= addslashes(htmlspecialchars($book['title'])) ?></td>
-                <td style="border:1px solid #ccc; padding:12px;"><?= addslashes(htmlspecialchars($book['author'])) ?></td>
-                <td style="border:1px solid #ccc; padding:12px;"><?= addslashes(htmlspecialchars($book['call_number'] ?? '—')) ?></td>
-                <td style="border:1px solid #ccc; padding:12px;"><?= addslashes(htmlspecialchars($book['category'])) ?></td>
-                <td style="border:1px solid #ccc; padding:12px;"><?= addslashes(htmlspecialchars($book['isbn'] ?: '—')) ?></td>
-                <td style="border:1px solid #ccc; padding:12px;"><?= $book['quantity'] ?></td>
-                <td style="border:1px solid #ccc; padding:12px;"><?= addslashes(htmlspecialchars($book['shelf_location'] ?? '—')) ?></td>
-                <td style="border:1px solid #ccc; padding:12px;"><?= $book['copyright_year'] ?></td>
+                <td style="border:1px solid #ccc; padding:10px;">${escapeHtml(book.title)}</td>
+                <td style="border:1px solid #ccc; padding:10px;">${escapeHtml(book.author)}</td>
+                <td style="border:1px solid #ccc; padding:10px;">${escapeHtml(book.callNumber)}</td>
+                <td style="border:1px solid #ccc; padding:10px;">${escapeHtml(book.category)}</td>
+                <td style="border:1px solid #ccc; padding:10px;">${escapeHtml(book.isbn)}</td>
+                <td style="border:1px solid #ccc; padding:10px;">${escapeHtml(book.statusText)}</td>
+                <td style="border:1px solid #ccc; padding:10px;">${escapeHtml(book.shelf)}</td>
+                <td style="border:1px solid #ccc; padding:10px;">${escapeHtml(book.year)}</td>
             </tr>
         `;
-    <?php endforeach; ?>
+    });
 
     html += `
             </tbody>
@@ -1124,6 +1886,7 @@ function printAllBooks() {
 
     printContent.innerHTML = html;
     printModal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
 }
 
 // ==============================================
@@ -1132,7 +1895,7 @@ function printAllBooks() {
 function confirmDelete(id) {
     Swal.fire({
         title: 'Are you sure?',
-        text: "You won't be able to revert this!",
+        text: "You won't be able to revert this! This will also delete the book cover image.",
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#d33',
@@ -1141,10 +1904,29 @@ function confirmDelete(id) {
         cancelButtonText: 'Cancel'
     }).then((result) => {
         if (result.isConfirmed) {
-            // Redirect to delete
             window.location.href = "books.php?delete_id=" + id;
         }
     });
+}
+
+// Close modals when clicking outside
+window.onclick = function(event) {
+    if (event.target == modal) {
+        modal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }
+    if (event.target == borrowModal) {
+        borrowModal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+        if (typeof $ !== 'undefined') {
+            if ($('#book_select').data('select2')) {
+                $('#book_select').select2('destroy');
+            }
+            if ($('#member_select').data('select2')) {
+                $('#member_select').select2('destroy');
+            }
+        }
+    }
 }
 </script>
 </body>
