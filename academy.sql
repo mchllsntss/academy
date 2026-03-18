@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Mar 12, 2026 at 11:15 AM
+-- Generation Time: Mar 18, 2026 at 05:12 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -890,7 +890,7 @@ INSERT INTO `books` (`id`, `call_number`, `title`, `shelf_location`, `author`, `
 (854, '', 'Siglo: Journal of the Ph Centennial Commission', 'References', 'Laurel-Virata-Morales', 'History', 1998, '0119-0660', 1, NULL, '2026-02-27 20:34:10'),
 (855, '', 'An Outline of American Government', 'References', 'Nathan Glick', 'Government', 1989, '', 1, NULL, '2026-02-27 20:34:10'),
 (856, '', 'More Stories of Life & Laughter', 'References', 'Fr. Bel San Luis, SVD', 'Religion', 2003, '971-510-1704', 1, NULL, '2026-02-27 20:34:10'),
-(857, '', '100 Parables of Zen', 'References', 'NS Chen-Joyce Lim', 'Religion', 1995, '981-3029-498', 1, NULL, '2026-02-27 20:34:10'),
+(857, '', '100 Parables of Zen', 'References', 'NS Chen-Joyce Lim', 'Religion', 1995, '981-3029-498', 2, NULL, '2026-02-27 20:34:10'),
 (858, '', 'Transforming Local Government Executives into Effective Managers', 'References', 'Isidro Cariño, DBA, PhD', 'Management', 1995, '971-9067-055', 1, NULL, '2026-02-27 20:34:10'),
 (859, '', 'Our Daily Bread Vol14', 'References', 'Bosch-Branon-Cetas', 'Religion', 2008, '1190652', 1, NULL, '2026-02-27 20:34:10'),
 (860, '080 N21 1987', 'A Nation for Our Children: Selected Writings of Jose Diokno', 'References', 'Opriscila Manalang', 'Politics', 1987, '971-91088-00', 1, NULL, '2026-02-27 20:34:10'),
@@ -4352,7 +4352,7 @@ INSERT INTO `books` (`id`, `call_number`, `title`, `shelf_location`, `author`, `
 (4306, '', 'SIGLO: JOURNAL OF THE PHILIPPINE CENTENNIAL COMMISSION', NULL, 'LAUREL-VIRATA-MORALES', 'Journal', 1998, '0119-0660', 1, NULL, '2026-03-09 21:14:01'),
 (4307, '', 'AN OUTLINE OF AMERICAN GOVERNMENT', NULL, 'NATHAN GLICK', 'Political Science', 1989, '', 1, NULL, '2026-03-09 21:14:01'),
 (4308, '', 'MORE STORIES OF LIFE & LAUGHTER', NULL, 'FR. BEL SAN LUIS, SVD', 'Religion', 2003, '971-510-1704', 1, NULL, '2026-03-09 21:14:01'),
-(4309, '', '100 PARABLES OF ZEN', NULL, 'NS CHEN-JOYCE LIM', 'Religion', 1995, '981-3029-498', 1, NULL, '2026-03-09 21:14:01'),
+(4309, '', '100 PARABLES OF ZEN', NULL, 'NS CHEN-JOYCE LIM', 'Religion', 1995, '981-3029-498', 2, NULL, '2026-03-09 21:14:01'),
 (4310, '', 'TRANSFORMING LOCAL GOVERNMENT EXECUTIVES INTO EFFECTIVE MANAGERS', NULL, 'ISIDRO CARIÑO, DBA, PHD', 'Management', 1995, '971-9067-055', 1, NULL, '2026-03-09 21:14:01'),
 (4311, '', 'OUR DAILY BREAD VOL14', NULL, 'BOSCH-BRANON-CETAS', 'Religion', 2008, '', 1, NULL, '2026-03-09 21:14:01'),
 (4312, '080 N21 1987', 'A NATION FOR OUR CHILDREN: SELECTED WRITINGS OF JOSE DIOKNO', NULL, 'OPRISCILA MANALANG', 'Literature', 1987, '971-91088-00', 1, NULL, '2026-03-09 21:14:01'),
@@ -4391,7 +4391,7 @@ INSERT INTO `books` (`id`, `call_number`, `title`, `shelf_location`, `author`, `
 (4345, '', '3RD MILLENNIUM: A CHALLENGE TO THE SUPERINTENDENCY', NULL, 'PASS', 'Education', 1995, '', 1, NULL, '2026-03-09 21:14:01'),
 (4346, '', 'PASS JOURNAL', NULL, 'DR. ARMAND FABELLA-HON DR. RICARDO GLORIA', 'Journal', 1994, '', 1, NULL, '2026-03-09 21:14:01'),
 (4347, '', '8 SUDOKU PLUS #31', NULL, 'RAMON LORENZO', 'Games', 2018, '1980-4161', 1, NULL, '2026-03-09 21:14:01'),
-(4348, '', '10 WORD QUEST #29', NULL, 'RAMON LORENZO', 'Games', 2019, '1980-4633', 1, NULL, '2026-03-09 21:14:01'),
+(4348, '---', '10 WORD QUEST #29', '—', 'RAMON LORENZO', 'Generalities', 2019, '1980-4633', 2, '', '2026-03-09 21:14:01'),
 (4349, '899.21 L14E 2009', 'EL FILIBUSTERISMO', NULL, 'D. ERNA A. LAHOZ', 'Filipino', 2009, '978-971-0407-61-3', 1, NULL, '2026-03-09 21:16:41'),
 (4350, '', 'KALINANGAN 7', NULL, 'MERCEDEZ DL. TULAYLAY', 'Filipino', 2023, '978-621-04-3449-1', 1, NULL, '2026-03-09 21:16:41'),
 (4351, '', 'KALINANGAN 9', NULL, 'MAYBEL AMOG', 'Filipino', 2023, '978-621-04-3451-4', 1, NULL, '2026-03-09 21:16:41'),
@@ -4517,10 +4517,10 @@ CREATE TABLE `books_requests` (
 --
 
 INSERT INTO `books_requests` (`id`, `student_id`, `book_title`, `author`, `isbn`, `notes`, `request_date`, `status`, `created_at`, `updated_at`) VALUES
-(1, 5, 'Tagumpay Bunga ng Edukasyon at Pangkabuhayan', 'Josephina Mallari', NULL, 'book for TLE', '2026-01-28', 'pending', '2026-01-28 16:15:26', NULL),
-(2, 5, 'Expeditions in Mapeh', 'Ferdilyn Lacia', '', 'Mapeh Book', '2026-01-28', 'pending', '2026-01-28 17:27:45', NULL),
+(1, 5, 'Tagumpay Bunga ng Edukasyon at Pangkabuhayan', 'Josephina Mallari', NULL, 'book for TLE', '2026-01-28', 'rejected', '2026-01-28 16:15:26', NULL),
+(2, 5, 'Expeditions in Mapeh', 'Ferdilyn Lacia', '', 'Mapeh Book', '2026-01-28', 'rejected', '2026-01-28 17:27:45', NULL),
 (3, 3, 'Wikang Sarili', 'Joel Malabanan ', '', 'Filipino Book', '2026-01-28', 'approved', '2026-01-28 17:28:18', NULL),
-(4, 5, 'Wimpy Kid', 'Joshua', '09082634', 'need for acads', '2026-02-10', 'pending', '2026-01-30 03:41:38', NULL);
+(4, 5, 'Wimpy Kid', 'Joshua', '09082634', 'need for acads', '2026-02-10', 'rejected', '2026-01-30 03:41:38', NULL);
 
 -- --------------------------------------------------------
 
@@ -4539,8 +4539,50 @@ CREATE TABLE `book_requests` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `admin_notes` text DEFAULT NULL,
   `fine` decimal(10,2) DEFAULT 0.00 COMMENT 'Overdue fine in PHP',
+  `attachment` varchar(255) DEFAULT NULL,
   `return_date` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `book_requests`
+--
+
+INSERT INTO `book_requests` (`id`, `student_id`, `book_id`, `request_type`, `request_date`, `status`, `created_at`, `updated_at`, `admin_notes`, `fine`, `attachment`, `return_date`) VALUES
+(42, 16, 4348, 'borrow', '2026-03-15 11:46:26', 'returned', '2026-03-15 11:46:26', '2026-03-15 11:46:44', 'Damaged book reported – additional fine ₱555.00', 555.00, NULL, '2026-03-22 00:00:00'),
+(43, 16, 857, 'borrow', '2026-03-15 11:47:24', 'returned', '2026-03-15 11:47:24', '2026-03-15 11:52:23', 'tanginamo\nDamaged book reported – additional fine ₱500.00', 500.00, '', '2026-03-22 00:00:00'),
+(44, 16, 857, 'borrow', '2026-03-15 11:53:01', 'returned', '2026-03-15 11:53:01', '2026-03-15 11:54:05', '', 0.00, '', '2026-03-22 00:00:00'),
+(45, 16, 4309, 'borrow', '2026-03-15 11:53:01', 'returned', '2026-03-15 11:53:01', '2026-03-15 12:14:49', 'hehe\nDamaged book reported – additional fine ₱5,555.00', 5555.00, NULL, '2026-03-22 00:00:00'),
+(46, 16, 823, 'borrow', '2026-03-15 11:53:02', 'returned', '2026-03-15 11:53:02', '2026-03-15 12:37:07', 'asdasd\n[Photo: return_46_1773578227.png]\nDamaged book – fine ₱555.00', 555.00, 'return_46_1773578227.png', '2026-03-22 00:00:00'),
+(47, 16, 857, 'borrow', '2026-03-15 11:53:03', 'rejected', '2026-03-15 11:53:03', '2026-03-15 11:53:18', NULL, 0.00, NULL, NULL),
+(48, 16, 4309, 'borrow', '2026-03-15 11:53:03', 'returned', '2026-03-15 11:53:03', '2026-03-15 11:59:43', 'Damaged book reported – additional fine ₱555.00', 555.00, '', '2026-03-22 00:00:00'),
+(49, 16, 857, 'borrow', '2026-03-15 11:53:04', 'returned', '2026-03-15 11:53:04', '2026-03-15 11:54:08', '', 0.00, '', '2026-03-22 00:00:00'),
+(50, 16, 4348, 'borrow', '2026-03-15 12:39:03', 'returned', '2026-03-15 12:39:03', '2026-03-15 12:39:22', 'n\nDamaged book reported – additional fine ₱555.00', 555.00, NULL, '2026-03-22 00:00:00'),
+(51, 16, 4348, 'borrow', '2026-03-15 12:46:58', 'returned', '2026-03-15 12:46:58', '2026-03-15 13:42:58', 'Damaged book – fine ₱55.00', 55.00, NULL, '2026-03-22 00:00:00'),
+(52, 16, 857, 'borrow', '2026-03-15 12:46:58', 'returned', '2026-03-15 12:46:58', '2026-03-15 13:05:09', '[Photo: return_52_1773579909.png]\nDamaged book – fine ₱0.00', 0.00, 'return_52_1773579909.png', '2026-03-22 00:00:00'),
+(53, 16, 4309, 'borrow', '2026-03-15 12:47:00', 'returned', '2026-03-15 12:47:00', '2026-03-15 12:47:16', '⚠️ Damaged book - additional fine ₱5,555.00', 5555.00, NULL, '2026-03-22 00:00:00'),
+(54, 16, 823, 'borrow', '2026-03-15 12:47:00', 'returned', '2026-03-15 12:47:00', '2026-03-15 13:04:09', 'Damaged book – fine ₱50.00', 50.00, NULL, '2026-03-22 00:00:00'),
+(55, 16, 4348, 'borrow', '2026-03-15 13:51:42', 'returned', '2026-03-15 13:51:42', '2026-03-15 13:51:58', 'Damaged book – fine ₱55.00', 55.00, NULL, '2026-03-22 00:00:00'),
+(56, 16, 4348, 'borrow', '2026-03-15 14:01:08', 'returned', '2026-03-15 14:01:08', '2026-03-15 14:01:20', 'Damaged book – fine ₱55.00', 55.00, NULL, '2026-03-22 00:00:00'),
+(57, 16, 4348, 'borrow', '2026-03-15 14:02:46', 'returned', '2026-03-15 14:02:46', '2026-03-15 14:03:00', 'Damaged book – fine ₱55.00', 55.00, NULL, '2026-03-22 00:00:00'),
+(58, 16, 4348, 'borrow', '2026-03-15 14:20:30', 'returned', '2026-03-15 14:20:30', '2026-03-15 14:20:41', 'Damaged book – fine ₱555.00', 555.00, NULL, '2026-03-22 00:00:00'),
+(59, 16, 4348, 'borrow', '2026-03-15 14:23:03', 'returned', '2026-03-15 14:23:03', '2026-03-15 14:23:13', '', 0.00, 'return_59_1773584593.png', '2026-03-22 00:00:00'),
+(60, 16, 4348, 'borrow', '2026-03-15 14:52:32', 'returned', '2026-03-15 14:52:32', '2026-03-15 15:34:13', 'ddd\nDamaged book – fine ₱555.00', 555.00, NULL, '2026-03-22 00:00:00'),
+(61, 16, 4348, 'borrow', '2026-03-15 15:35:43', 'returned', '2026-03-15 15:35:43', '2026-03-15 15:35:53', '', 0.00, '', '2026-03-22 00:00:00'),
+(62, 16, 4348, 'borrow', '2026-03-15 15:36:20', '', '2026-03-15 15:36:20', '2026-03-15 15:42:57', 'Hindi naibalik ng borrower.', 0.00, NULL, '2026-03-22 00:00:00'),
+(63, 16, 857, 'borrow', '2026-03-15 15:36:21', 'returned', '2026-03-15 15:36:21', '2026-03-15 15:36:39', 'we need\n[Photo: return_63_1773588999.png]\nDamaged book – fine ₱555.00', 555.00, 'return_63_1773588999.png', '2026-03-22 00:00:00'),
+(64, 14, 857, 'borrow', '2026-03-15 15:42:10', 'returned', '2026-03-15 15:42:10', '2026-03-15 15:42:27', '[Photo: return_64_1773589347.png]\nDamaged book – fine ₱55.00', 55.00, 'return_64_1773589347.png', '2026-03-22 00:00:00'),
+(65, 14, 857, 'borrow', '2026-03-15 15:48:04', 'returned', '2026-03-15 15:48:04', '2026-03-15 15:48:22', 'nasira niya\nDamaged book – fine ₱500.00', 500.00, 'return_65_1773589702.png', '2026-03-22 00:00:00'),
+(66, 14, 4309, 'borrow', '2026-03-15 15:55:29', 'rejected', '2026-03-15 15:55:29', '2026-03-15 17:00:36', NULL, 0.00, NULL, NULL),
+(67, 14, 4309, 'borrow', '2026-03-15 15:55:40', 'returned', '2026-03-15 15:55:40', '2026-03-15 17:01:04', '', 0.00, NULL, '2026-03-22 00:00:00'),
+(68, 14, 4309, 'borrow', '2026-03-15 15:55:45', 'rejected', '2026-03-15 15:55:45', '2026-03-15 15:55:51', NULL, 0.00, NULL, NULL),
+(69, 11, 4275, 'borrow', '2026-03-15 16:08:20', 'returned', '2026-03-15 16:08:20', '2026-03-15 17:01:06', '', 0.00, NULL, '2026-03-23 00:00:00'),
+(70, 3, 823, 'borrow', '2026-03-15 16:52:04', 'returned', '2026-03-15 16:52:04', '2026-03-15 17:01:02', '', 0.00, NULL, '2026-03-23 00:00:00'),
+(71, 14, 857, 'borrow', '2026-03-15 16:56:26', 'returned', '2026-03-15 16:56:26', '2026-03-15 17:00:58', '', 0.00, 'return_71_1773594058.png', '2026-03-22 00:00:00'),
+(72, 14, 4348, 'borrow', '2026-03-15 17:01:38', 'returned', '2026-03-15 17:01:38', '2026-03-15 17:02:11', '', 0.00, NULL, '2026-03-23 00:00:00'),
+(73, 16, 4348, 'borrow', '2026-03-15 17:01:57', 'returned', '2026-03-15 17:01:57', '2026-03-15 17:02:13', '', 0.00, NULL, '2026-03-23 00:00:00'),
+(74, 16, 4348, 'borrow', '2026-03-15 17:03:14', 'returned', '2026-03-15 17:03:14', '2026-03-15 17:15:17', 'nasira niya\nDamaged book – fine ₱500.00', 500.00, 'return_74_1773594917.png', '2026-03-23 00:00:00'),
+(75, 14, 4275, 'borrow', '2026-03-15 17:06:42', 'pending', '2026-03-15 17:06:42', '2026-03-15 17:06:42', NULL, 0.00, NULL, NULL),
+(76, 16, 4275, 'borrow', '2026-03-15 17:10:04', 'rejected', '2026-03-15 17:10:04', '2026-03-15 17:10:14', NULL, 0.00, NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -4790,7 +4832,7 @@ ALTER TABLE `books_requests`
 -- AUTO_INCREMENT for table `book_requests`
 --
 ALTER TABLE `book_requests`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=42;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=77;
 
 --
 -- AUTO_INCREMENT for table `faculty`

@@ -1,5 +1,5 @@
 <?php
-// student_borrowed_books.php - My Borrowed Books + History with Admin Notes + Fine + Pagination
+// student_borrowed_books.php - My Borrowed Books + History with Admin Notes + Fine + Pagination + Attachments
 session_start();
 require_once '../connection/dbconnection.php';
 
@@ -83,7 +83,7 @@ $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
 $offset = ($page - 1) * $per_page;
 
 // Get total history count
-$count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM book_requests WHERE student_id = ? AND request_type = 'borrow'");
+$count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM book_requests WHERE student_id = ? AND request_type = 'borrow' AND status IN ('returned', 'not_returned')");
 $count_stmt->bind_param("i", $user_id);
 $count_stmt->execute();
 $count_result = $count_stmt->get_result();
@@ -96,7 +96,7 @@ if ($page > $total_pages && $total_pages > 0) {
     $offset = ($page - 1) * $per_page;
 }
 
-// Fetch history with pagination (now including fine)
+// Fetch history with pagination (now including fine and attachment)
 $history = [];
 $stmt_history = $conn->prepare("
     SELECT
@@ -104,11 +104,13 @@ $stmt_history = $conn->prepare("
         br.status,
         br.updated_at,
         br.admin_notes,
-        br.fine
+        br.fine,
+        br.attachment
     FROM book_requests br
     JOIN books b ON br.book_id = b.id
     WHERE br.student_id = ?
       AND br.request_type = 'borrow'
+      AND br.status IN ('returned', 'not_returned')
     ORDER BY br.updated_at DESC
     LIMIT ? OFFSET ?
 ");
@@ -135,7 +137,7 @@ if ($stmt_history) {
         .page-wrapper { display:flex; flex:1; }
         .sidebar { width:250px; background:#2e7d32; color:white; flex-shrink:0; }
         .main-content { flex:1; padding:24px; background:#f5f7f0; }
-        .container { max-width:1100px; margin:0 auto; width:100%; }
+        .container { max-width:1200px; margin:0 auto; width:100%; }
         .header-section { text-align:center; margin-bottom:40px; }
         .header-section h1 { color:#2e7d32; font-size:2.4rem; margin-bottom:12px; position:relative; display:inline-block; padding-bottom:14px; }
         .header-section h1:after { content:''; position:absolute; bottom:0; left:50%; transform:translateX(-50%); width:140px; height:4px; background:#4caf50; border-radius:2px; }
@@ -163,11 +165,104 @@ if ($stmt_history) {
         .pagination a, .pagination span { display:inline-block; padding:10px 16px; margin:0 6px; background:#4caf50; color:white; text-decoration:none; border-radius:8px; font-weight:600; }
         .pagination a:hover { background:#388e3c; transform:translateY(-2px); }
         .pagination .current { background:#2e7d32; cursor:default; }
-        .admin-notes { max-width:300px; word-wrap:break-word; font-size:0.95em; color:#555; }
+        .admin-notes { max-width:250px; word-wrap:break-word; font-size:0.95em; color:#555; }
         .admin-notes:empty::before { content:'—'; color:#aaa; }
+        
+        /* Attachment Styles */
+        .attachment-thumb { 
+            width: 40px; 
+            height: 40px; 
+            object-fit: cover; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            border: 2px solid #4caf50;
+            transition: all 0.2s;
+        }
+        .attachment-thumb:hover { 
+            transform: scale(1.1); 
+            box-shadow: 0 4px 12px rgba(76,175,80,0.3);
+            border-color: #2e7d32;
+        }
+        .attachment-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 6px 12px;
+            border-radius: 20px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 600;
+            border: 1px solid #a5d6a7;
+            transition: all 0.2s;
+        }
+        .attachment-link:hover {
+            background: #c8e6c9;
+            transform: translateY(-2px);
+        }
+        .attachment-link i {
+            font-size: 14px;
+        }
+        .no-attachment {
+            color: #999;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .lightbox { 
+            display:none; 
+            position:fixed; 
+            top:0; 
+            left:0; 
+            width:100%; 
+            height:100%; 
+            background:rgba(0,0,0,0.95); 
+            justify-content:center; 
+            align-items:center; 
+            z-index:2000;
+            backdrop-filter: blur(5px);
+        }
+        .lightbox img { 
+            max-width:90%; 
+            max-height:90%; 
+            border:4px solid white; 
+            border-radius:8px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+        }
+        .close-lightbox { 
+            position:absolute; 
+            top:30px; 
+            right:40px; 
+            color:white; 
+            font-size:50px; 
+            cursor:pointer;
+            transition: color 0.2s;
+        }
+        .close-lightbox:hover {
+            color: #4caf50;
+        }
+        .attachment-badge {
+            display: inline-block;
+            background: #4caf50;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+            margin-left: 5px;
+        }
 
-        @media (max-width:992px)  { .page-wrapper { flex-direction:column; } .sidebar { width:100%; } .main-content { padding:20px 16px; } }
-        @media (max-width:768px)  { .header-section h1 { font-size:2.1rem; } .borrowed-card { padding:28px 20px; } }
+        @media (max-width:992px)  { 
+            .page-wrapper { flex-direction:column; } 
+            .sidebar { width:100%; } 
+            .main-content { padding:20px 16px; } 
+        }
+        @media (max-width:768px)  { 
+            .header-section h1 { font-size:2.1rem; } 
+            .borrowed-card { padding:28px 20px; } 
+        }
         @media (max-width:600px) {
             .books-table thead, .history-table thead { display:none; }
             .books-table tr, .history-table tr { display:block; margin-bottom:20px; border:2px solid #ddd; border-radius:12px; }
@@ -246,7 +341,7 @@ if ($stmt_history) {
                                                     </button>
                                                 </form>
                                             <?php else: ?>
-                                                <button class="return-btn" disabled>Pending Return</button>
+                                                <button class="return-btn" disabled><i class="fas fa-clock"></i> Pending Return</button>
                                             <?php endif; ?>
                                         </td>
                                     </tr>
@@ -274,6 +369,7 @@ if ($stmt_history) {
                                     <th>Updated At</th>
                                     <th>Fine (₱)</th>
                                     <th>Admin Notes</th>
+                                    <th>Attachment</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -282,14 +378,50 @@ if ($stmt_history) {
                                     $fine_class = $hist['fine'] > 0 ? 'fine-amount positive' : 'fine-amount zero';
                                     $notes = $hist['admin_notes'];
                                     $notesDisplay = $notes ? htmlspecialchars(substr($notes, 0, 80)) . (strlen($notes)>80?'...':'') : '—';
+                                    
+                                    // Handle attachment
+                                    $has_attachment = !empty($hist['attachment']);
+                                    $attachment_path = $has_attachment ? '../uploads/returns/' . $hist['attachment'] : '';
+                                    $file_exists = $has_attachment && file_exists($attachment_path);
                                 ?>
                                     <tr>
                                         <td data-label="Book Title" class="book-title"><?= htmlspecialchars($hist['book_title']) ?></td>
-                                        <td data-label="Status"><?= ucfirst(str_replace('_', ' ', $hist['status'])) ?></td>
+                                        <td data-label="Status">
+                                            <?php if ($hist['status'] == 'returned'): ?>
+                                                <span style="color:#2e7d32; font-weight:600;"><i class="fas fa-check-circle"></i> Returned</span>
+                                            <?php else: ?>
+                                                <span style="color:#c62828; font-weight:600;"><i class="fas fa-times-circle"></i> Not Returned</span>
+                                            <?php endif; ?>
+                                        </td>
                                         <td data-label="Updated At"><?= $hist['updated_at'] ? date('F j, Y g:i A', strtotime($hist['updated_at'])) : '—' ?></td>
                                         <td data-label="Fine" class="<?= $fine_class ?>"><strong><?= $fine_txt ?></strong></td>
                                         <td data-label="Admin Notes" class="admin-notes" title="<?= htmlspecialchars($notes ?? '') ?>">
                                             <?= $notesDisplay ?>
+                                        </td>
+                                        <td data-label="Attachment">
+                                            <?php if ($file_exists): ?>
+                                                <?php 
+                                                $ext = strtolower(pathinfo($attachment_path, PATHINFO_EXTENSION));
+                                                if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif'])): 
+                                                ?>
+                                                    <img src="<?= $attachment_path ?>?t=<?= time() ?>" 
+                                                         class="attachment-thumb" 
+                                                         onclick="openLightbox('<?= $attachment_path ?>')" 
+                                                         title="Click to view full image">
+                                                <?php else: ?>
+                                                    <a href="<?= $attachment_path ?>" target="_blank" class="attachment-link">
+                                                        <i class="fas fa-file"></i> View File
+                                                    </a>
+                                                <?php endif; ?>
+                                            <?php elseif ($has_attachment): ?>
+                                                <span class="no-attachment" title="File: <?= htmlspecialchars($hist['attachment']) ?>">
+                                                    <i class="fas fa-exclamation-triangle" style="color:#f57c00;"></i> File missing
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="no-attachment">
+                                                    <i class="fas fa-times-circle" style="color:#ccc;"></i> No attachment
+                                                </span>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -299,7 +431,7 @@ if ($stmt_history) {
                         <?php if ($total_pages > 1): ?>
                             <div class="pagination">
                                 <?php if ($page > 1): ?>
-                                    <a href="?page=<?= $page - 1 ?>">&laquo; Previous</a>
+                                    <a href="?page=<?= $page - 1 ?>"><i class="fas fa-chevron-left"></i> Previous</a>
                                 <?php endif; ?>
                                 <?php for ($i = 1; $i <= $total_pages; $i++): ?>
                                     <?php if ($i == $page): ?>
@@ -309,7 +441,7 @@ if ($stmt_history) {
                                     <?php endif; ?>
                                 <?php endfor; ?>
                                 <?php if ($page < $total_pages): ?>
-                                    <a href="?page=<?= $page + 1 ?>">Next &raquo;</a>
+                                    <a href="?page=<?= $page + 1 ?>">Next <i class="fas fa-chevron-right"></i></a>
                                 <?php endif; ?>
                             </div>
                         <?php endif; ?>
@@ -319,6 +451,12 @@ if ($stmt_history) {
 
             <?php include '../components/footer.php'; ?>
         </main>
+    </div>
+
+    <!-- LIGHTBOX -->
+    <div id="lightbox" class="lightbox" onclick="closeLightbox()">
+        <span class="close-lightbox" onclick="closeLightbox()">&times;</span>
+        <img id="lightboxImg" src="" alt="Attachment Preview">
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -358,6 +496,25 @@ if ($stmt_history) {
                 confirmButtonColor: '#d32f2f'
             });
         <?php endif; ?>
+
+        // Lightbox function
+        function openLightbox(src) {
+            document.getElementById('lightboxImg').src = src + '?t=' + new Date().getTime();
+            document.getElementById('lightbox').style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
+        
+        function closeLightbox() {
+            document.getElementById('lightbox').style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        // Close lightbox with Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeLightbox();
+            }
+        });
     </script>
 </body>
 </html>
